@@ -1,0 +1,155 @@
+"""
+Export endpoint — Phase 8: final_consolidated → finalized
+
+Flow:
+  1. Guard: session exists
+  2. Guard: state is exactly FINAL_CONSOLIDATED
+     - If already FINALIZED → specific 409 "already finalized" message
+     - Any other wrong state → generic 409 "requires final_consolidated"
+  3. Pull matching buckets, residual, AI meta, and consolidation from runtime (read-only)
+  4. Run export (pure function — generates files, no side effects on runtime)
+  5. Write export metadata BEFORE state advance:
+       - rm.write_export_meta(...) — file paths, hashes, timestamp
+  6. Advance state to FINALIZED (snapshot fires automatically)
+  7. Return ExportResponse
+
+Architecture notes:
+- FINALIZED is a terminal state — no further transitions after this endpoint.
+- All CSV and PDF file generation occurs in the export service layer.
+- Route reads from runtime; service writes to the filesystem only.
+- No recomputation. This is a pure output generation step.
+"""
+
+from fastapi import APIRouter, HTTPException
+
+import src.core.runtime_manager as rm
+from src.core.state_machine import ReconciliationState
+from src.schemas.export import ExportFile, ExportResponse
+from src.schemas.intake import SnapshotInfo
+from src.services.export_service import run_export
+
+router = APIRouter(prefix="/reconciliation", tags=["export"])
+
+
+@router.post("/{session_id}/export", response_model=ExportResponse)
+def run_finalization_export(session_id: str):
+    """
+    Generate all output files and advance session from
+    'final_consolidated' to 'finalized'.
+
+    Generates:
+      - final_matches.csv          : All accepted matches
+      - residual_unmatched_gl.csv  : Unmatched GL records
+      - residual_unmatched_sub.csv : Unmatched subledger records
+      - rejected_matches.csv       : All rejected matches
+      - audit_log.csv              : Complete audit trail
+      - reconciliation_report.pdf  : Executive summary and statistics
+
+    FINALIZED is a terminal state — no further transitions are possible.
+
+    Returns 409 if already FINALIZED.
+    Returns 409 if session is in any other non-final_consolidated state.
+    """
+    # --- Guard: session existence ---
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+
+    # --- Guard: already finalized ---
+    if current == ReconciliationState.FINALIZED:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Session is already in 'finalized' state. "
+                "Export has already been completed."
+            ),
+        )
+
+    # --- Guard: correct pre-condition state ---
+    if current != ReconciliationState.FINAL_CONSOLIDATED:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Export requires state 'final_consolidated'. "
+                f"Current state is '{current.value}'."
+            ),
+        )
+
+    # --- Pull inputs from runtime (read-only) ---
+    runtime      = rm.get_runtime(session_id)
+    matching     = runtime["matching"]
+    pool         = runtime.get("residual_pool", {})
+
+    all_matches  = matching.get("final",         [])
+    prob_matches = matching.get("probabilistic",  [])
+    ai_suggested = matching.get("ai_suggested",   [])
+    rejected     = matching.get("rejected",       [])
+
+    residual_gl  = pool.get("gl",        None)
+    residual_sub = pool.get("subledger", None)
+
+    ai_meta      = runtime.get("ai_suggested_meta", {})
+    consolidation = runtime.get("consolidation",    {})
+
+    # --- Run export (pure, writes files to temp dir) ---
+    manifest = run_export(
+        all_matches=   all_matches,
+        prob_matches=  prob_matches,
+        ai_suggested=  ai_suggested,
+        rejected=      rejected,
+        residual_gl=   residual_gl,
+        residual_sub=  residual_sub,
+        ai_meta=       ai_meta,
+        consolidation= consolidation,
+        session_id=    session_id,
+    )
+
+    # --- Write export metadata BEFORE state advance so snapshot captures it ---
+    rm.write_export_meta(session_id, {
+        "export_dir":  manifest.export_dir,
+        "exported_at": manifest.exported_at,
+        "files": [
+            {
+                "filename":   f.filename,
+                "path":       f.path,
+                "sha256":     f.sha256,
+                "size_bytes": f.size_bytes,
+            }
+            for f in manifest.files
+        ],
+    })
+
+    # --- Advance state to FINALIZED (snapshot fires automatically) ---
+    try:
+        rm.advance_state(
+            session_id,
+            ReconciliationState.FINALIZED,
+            triggered_by="export",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    # --- Build response ---
+    snapshots = rm.get_session_snapshots(session_id)
+    latest    = snapshots[-1] if snapshots else {}
+
+    return ExportResponse(
+        session_id=  session_id,
+        state=       rm.get_current_state(session_id).value,
+        export_dir=  manifest.export_dir,
+        exported_at= manifest.exported_at,
+        files=[
+            ExportFile(
+                filename=   f.filename,
+                path=       f.path,
+                sha256=     f.sha256,
+                size_bytes= f.size_bytes,
+            )
+            for f in manifest.files
+        ],
+        snapshot=SnapshotInfo(
+            key=            latest.get("pre_transition_state", ""),
+            integrity_hash= latest.get("integrity_hash", ""),
+        ),
+    )

@@ -1,0 +1,2535 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AI Reconciliation Engine",
+    "description": "Forward-only, API-driven reconciliation engine with deterministic authority, probabilistic augmentation, and AI advisory assistance.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/reconciliation/start": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Start Reconciliation",
+        "description": "Create a new reconciliation session. Returns session_id in INITIALIZED state.",
+        "operationId": "start_reconciliation_reconciliation_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreateRequest",
+                "default": {
+
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/sessions": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List Sessions",
+        "description": "List all active session IDs.",
+        "operationId": "list_sessions_reconciliation_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/status": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Session Status",
+        "description": "Return current state, review phase flag, and matching bucket counts.",
+        "operationId": "get_session_status_reconciliation__session_id__status_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/transition/{new_state}": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Transition State",
+        "description": "Advance a session to the next state.\n\nUsed for manual / review-completion transitions\n(e.g., marking deterministic_review_complete after human sign-off).\nLayer execution transitions happen via /layers/* endpoints.",
+        "operationId": "transition_state_reconciliation__session_id__transition__new_state__post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "new_state",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReconciliationState"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest",
+                "default": {
+                  "triggered_by": "system"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransitionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/upload": {
+      "post": {
+        "tags": [
+          "intake"
+        ],
+        "summary": "Upload Files",
+        "description": "Accept Chart_of_Accounts.csv, GL.csv, Subledger.csv and advance the session\nfrom 'initialized' to 'files_loaded'.\n\nReturns 422 with structured per-column errors if any file fails validation.\nReturns 409 if the session is not in the 'initialized' state.",
+        "operationId": "upload_files_reconciliation__session_id__upload_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_files_reconciliation__session_id__upload_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSuccessResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/profile": {
+      "post": {
+        "tags": [
+          "profiling"
+        ],
+        "summary": "Run Profile",
+        "description": "Profile the validated datasets and advance to 'profiled' state.\n\nReturns 409 with a specific \"no recomputation\" message if already profiled.\nReturns 409 if session is in any other non-files_loaded state.",
+        "operationId": "run_profile_reconciliation__session_id__profile_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/preprocess": {
+      "post": {
+        "tags": [
+          "preprocessing"
+        ],
+        "summary": "Run Preprocess",
+        "description": "Run vendor normalization and advance session from 'profiled' to 'preprocessed'.\n\nReturns 409 with a specific \"no recomputation\" message if already preprocessed.\nReturns 409 if session is in any other non-profiled state.",
+        "operationId": "run_preprocess_reconciliation__session_id__preprocess_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreprocessingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/deterministic": {
+      "post": {
+        "tags": [
+          "deterministic"
+        ],
+        "summary": "Run Deterministic",
+        "description": "Run deterministic matching and advance session from 'preprocessed' to\n'deterministic_complete'.\n\nReturns 409 with a specific \"no recomputation\" message if already complete.\nReturns 409 if session is in any other non-preprocessed state.",
+        "operationId": "run_deterministic_reconciliation__session_id__deterministic_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeterministicResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/deterministic/review": {
+      "post": {
+        "tags": [
+          "deterministic"
+        ],
+        "summary": "Confirm Deterministic Review",
+        "description": "Confirm deterministic review and advance session from 'deterministic_complete'\nto 'deterministic_review_complete'.\n\nConfirm-only — no computation, no dataset mutation.\nSnapshot is written automatically before the state advance.\n\nReturns 409 with a specific \"already confirmed\" message if review is already complete.\nReturns 409 if the session is in any other non-deterministic_complete state.",
+        "operationId": "confirm_deterministic_review_reconciliation__session_id__deterministic_review_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeterministicReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/probabilistic": {
+      "post": {
+        "tags": [
+          "probabilistic"
+        ],
+        "summary": "Run Probabilistic",
+        "description": "Run probabilistic matching and advance session from\n'deterministic_review_complete' to 'probabilistic_complete'.\n\nReturns 409 with a \"no recomputation\" message if already complete.\nReturns 409 if session is in any other non-deterministic_review_complete state.",
+        "operationId": "run_probabilistic_reconciliation__session_id__probabilistic_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbabilisticResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/probabilistic/review": {
+      "post": {
+        "tags": [
+          "probabilistic"
+        ],
+        "summary": "Confirm Probabilistic Review",
+        "description": "Apply human accept/reject decisions to probabilistic matches and advance session\nfrom 'probabilistic_complete' to 'probabilistic_review_complete'.\n\nAccepted matches:  user_status → \"accepted\"; remain in probabilistic bucket.\nRejected matches:  user_status → \"rejected\"; moved to rejected bucket;\n                   GL and Sub records returned to residual pool.\nUndecided matches: unchanged (user_status stays \"pending\").\n\nReturns 409 with a specific \"already reviewed\" message if review is already complete.\nReturns 409 if session is in any other non-probabilistic_complete state.",
+        "operationId": "confirm_probabilistic_review_reconciliation__session_id__probabilistic_review_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbabilisticReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbabilisticReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/ai": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Run Ai Suggested",
+        "description": "Generate AI-assisted match suggestions and advance session from\n'probabilistic_review_complete' to 'ai_suggested'.\n\nAdvisory only — the residual pool is not modified. All suggestions\nrequire human review before acceptance.\n\nReturns 409 with a \"no recomputation\" message if already AI_SUGGESTED.\nReturns 409 if session is in any other non-probabilistic_review_complete state.",
+        "operationId": "run_ai_suggested_reconciliation__session_id__ai_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/ai/review": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Confirm Ai Review",
+        "description": "Apply human accept/reject decisions to AI suggestions and advance session\nfrom 'ai_suggested' to 'ai_review_complete'.\n\nAccepted suggestions: user_status → \"accepted\"; moved to final bucket.\nRejected suggestions: user_status → \"rejected\"; moved to rejected bucket;\n                      GL and Sub records returned to residual pool.\nUndecided suggestions: unchanged (user_status stays \"pending\").\n\nReturns 409 with a specific \"already confirmed\" message if review is already complete.\nReturns 409 if session is in any other non-ai_suggested state.",
+        "operationId": "confirm_ai_review_reconciliation__session_id__ai_review_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/snapshots": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "summary": "List Snapshots",
+        "description": "List all snapshots captured for the session, in transition order.",
+        "operationId": "list_snapshots_reconciliation__session_id__snapshots_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/snapshots/{phase_name}": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "summary": "Get Snapshot",
+        "description": "Retrieve the full immutable snapshot for a specific phase.\n\n`phase_name` matches the state value at the time of capture\n(e.g., 'initialized', 'files_loaded', 'preprocessed').",
+        "operationId": "get_snapshot_reconciliation__session_id__snapshots__phase_name__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "phase_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Phase Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/layers/deterministic": {
+      "post": {
+        "tags": [
+          "layers"
+        ],
+        "summary": "Run Deterministic",
+        "description": "Run the deterministic matching layer.\n\nRequired pre-state: preprocessed\nAdvances to:        deterministic_complete",
+        "operationId": "run_deterministic_reconciliation__session_id__layers_deterministic_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "triggered_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "system",
+              "title": "Triggered By"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/layers/probabilistic": {
+      "post": {
+        "tags": [
+          "layers"
+        ],
+        "summary": "Run Probabilistic",
+        "description": "Run the probabilistic (fuzzy) matching layer on the residual pool.\n\nRequired pre-state: deterministic_review_complete\nAdvances to:        probabilistic_complete",
+        "operationId": "run_probabilistic_reconciliation__session_id__layers_probabilistic_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "triggered_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "system",
+              "title": "Triggered By"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/layers/ai-advisory": {
+      "post": {
+        "tags": [
+          "layers"
+        ],
+        "summary": "Run Ai Advisory",
+        "description": "Run the AI advisory layer on remaining unmatched records.\n\nRequired pre-state: probabilistic_review_complete\nAdvances to:        ai_suggested\n\nResults are ADVISORY ONLY. Human review is required before any suggestion\nis promoted to a final match.",
+        "operationId": "run_ai_advisory_reconciliation__session_id__layers_ai_advisory_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "triggered_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "system",
+              "title": "Triggered By"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/consolidate": {
+      "post": {
+        "tags": [
+          "consolidation"
+        ],
+        "summary": "Run Consolidation",
+        "description": "Assemble the final reconciliation dataset and advance session from\n'ai_review_complete' to 'final_consolidated'.\n\nConsolidates:\n  - All deterministic matches (authoritative, auto_confirmed)\n  - Accepted probabilistic matches (user_status == \"accepted\")\n  - Accepted AI matches (already in final bucket from Phase 6A)\n\nNo recomputation — pure bookkeeping assembly step.\n\nReturns 409 with an \"already consolidated\" message if already FINAL_CONSOLIDATED.\nReturns 409 if session is in any other non-ai_review_complete state.",
+        "operationId": "run_consolidation_reconciliation__session_id__consolidate_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinalConsolidationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reconciliation/{session_id}/export": {
+      "post": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Run Finalization Export",
+        "description": "Generate all output files and advance session from\n'final_consolidated' to 'finalized'.\n\nGenerates:\n  - final_matches.csv          : All accepted matches\n  - residual_unmatched_gl.csv  : Unmatched GL records\n  - residual_unmatched_sub.csv : Unmatched subledger records\n  - rejected_matches.csv       : All rejected matches\n  - audit_log.csv              : Complete audit trail\n  - reconciliation_report.pdf  : Executive summary and statistics\n\nFINALIZED is a terminal state — no further transitions are possible.\n\nReturns 409 if already FINALIZED.\nReturns 409 if session is in any other non-final_consolidated state.",
+        "operationId": "run_finalization_export_reconciliation__session_id__export_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AIMatchDecision": {
+        "properties": {
+          "match_id": {
+            "type": "string",
+            "title": "Match Id"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "decision"
+        ],
+        "title": "AIMatchDecision"
+      },
+      "AIMatchSchema": {
+        "properties": {
+          "match_id": {
+            "type": "string",
+            "title": "Match Id"
+          },
+          "record_ids_A": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Record Ids A"
+          },
+          "record_ids_B": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Record Ids B"
+          },
+          "ai_confidence_score": {
+            "type": "number",
+            "title": "Ai Confidence Score"
+          },
+          "materiality": {
+            "type": "number",
+            "title": "Materiality"
+          },
+          "supporting_features": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Supporting Features"
+          },
+          "reasoning_narrative": {
+            "type": "string",
+            "title": "Reasoning Narrative"
+          },
+          "grouping_type": {
+            "type": "string",
+            "title": "Grouping Type"
+          },
+          "user_status": {
+            "type": "string",
+            "title": "User Status"
+          },
+          "override_flag": {
+            "type": "boolean",
+            "title": "Override Flag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "record_ids_A",
+          "record_ids_B",
+          "ai_confidence_score",
+          "materiality",
+          "supporting_features",
+          "reasoning_narrative",
+          "grouping_type",
+          "user_status",
+          "override_flag"
+        ],
+        "title": "AIMatchSchema"
+      },
+      "AIResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AISummary"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/AIMatchSchema"
+            },
+            "type": "array",
+            "title": "Suggestions"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "summary",
+          "suggestions",
+          "snapshot"
+        ],
+        "title": "AIResponse"
+      },
+      "AIReviewRequest": {
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/AIMatchDecision"
+            },
+            "type": "array",
+            "title": "Decisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decisions"
+        ],
+        "title": "AIReviewRequest"
+      },
+      "AIReviewResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "accepted_count": {
+            "type": "integer",
+            "title": "Accepted Count"
+          },
+          "rejected_count": {
+            "type": "integer",
+            "title": "Rejected Count"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "accepted_count",
+          "rejected_count",
+          "snapshot"
+        ],
+        "title": "AIReviewResponse"
+      },
+      "AISummary": {
+        "properties": {
+          "total_residual_gl": {
+            "type": "integer",
+            "title": "Total Residual Gl"
+          },
+          "total_residual_sub": {
+            "type": "integer",
+            "title": "Total Residual Sub"
+          },
+          "suggestion_count": {
+            "type": "integer",
+            "title": "Suggestion Count"
+          },
+          "model_used": {
+            "type": "string",
+            "title": "Model Used"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_residual_gl",
+          "total_residual_sub",
+          "suggestion_count",
+          "model_used",
+          "prompt_version"
+        ],
+        "title": "AISummary"
+      },
+      "Body_upload_files_reconciliation__session_id__upload_post": {
+        "properties": {
+          "chart_of_accounts": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Chart Of Accounts"
+          },
+          "gl": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Gl"
+          },
+          "subledger": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Subledger"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chart_of_accounts",
+          "gl",
+          "subledger"
+        ],
+        "title": "Body_upload_files_reconciliation__session_id__upload_post"
+      },
+      "ConsolidationSummary": {
+        "properties": {
+          "deterministic_match_count": {
+            "type": "integer",
+            "title": "Deterministic Match Count"
+          },
+          "probabilistic_match_count": {
+            "type": "integer",
+            "title": "Probabilistic Match Count"
+          },
+          "ai_match_count": {
+            "type": "integer",
+            "title": "Ai Match Count"
+          },
+          "total_match_count": {
+            "type": "integer",
+            "title": "Total Match Count"
+          },
+          "residual_gl_count": {
+            "type": "integer",
+            "title": "Residual Gl Count"
+          },
+          "residual_sub_count": {
+            "type": "integer",
+            "title": "Residual Sub Count"
+          },
+          "rejected_count": {
+            "type": "integer",
+            "title": "Rejected Count"
+          },
+          "override_count": {
+            "type": "integer",
+            "title": "Override Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deterministic_match_count",
+          "probabilistic_match_count",
+          "ai_match_count",
+          "total_match_count",
+          "residual_gl_count",
+          "residual_sub_count",
+          "rejected_count",
+          "override_count"
+        ],
+        "title": "ConsolidationSummary"
+      },
+      "CrossFileSummarySchema": {
+        "properties": {
+          "gl_row_count": {
+            "type": "integer",
+            "title": "Gl Row Count"
+          },
+          "subledger_row_count": {
+            "type": "integer",
+            "title": "Subledger Row Count"
+          },
+          "row_count_delta": {
+            "type": "integer",
+            "title": "Row Count Delta"
+          },
+          "row_count_delta_pct": {
+            "type": "number",
+            "title": "Row Count Delta Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "gl_row_count",
+          "subledger_row_count",
+          "row_count_delta",
+          "row_count_delta_pct"
+        ],
+        "title": "CrossFileSummarySchema"
+      },
+      "DateRangeSchema": {
+        "properties": {
+          "min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          }
+        },
+        "type": "object",
+        "required": [
+          "min",
+          "max"
+        ],
+        "title": "DateRangeSchema"
+      },
+      "DeterministicResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DeterministicSummary"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/MatchRecordSchema"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "summary",
+          "matches",
+          "snapshot"
+        ],
+        "title": "DeterministicResponse"
+      },
+      "DeterministicReviewResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "deterministic_match_count": {
+            "type": "integer",
+            "title": "Deterministic Match Count"
+          },
+          "residual_gl_count": {
+            "type": "integer",
+            "title": "Residual Gl Count"
+          },
+          "residual_sub_count": {
+            "type": "integer",
+            "title": "Residual Sub Count"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "deterministic_match_count",
+          "residual_gl_count",
+          "residual_sub_count",
+          "snapshot"
+        ],
+        "title": "DeterministicReviewResponse"
+      },
+      "DeterministicSummary": {
+        "properties": {
+          "total_gl_records": {
+            "type": "integer",
+            "title": "Total Gl Records"
+          },
+          "total_sub_records": {
+            "type": "integer",
+            "title": "Total Sub Records"
+          },
+          "matched_gl_records": {
+            "type": "integer",
+            "title": "Matched Gl Records"
+          },
+          "matched_sub_records": {
+            "type": "integer",
+            "title": "Matched Sub Records"
+          },
+          "unmatched_gl_records": {
+            "type": "integer",
+            "title": "Unmatched Gl Records"
+          },
+          "unmatched_sub_records": {
+            "type": "integer",
+            "title": "Unmatched Sub Records"
+          },
+          "match_count": {
+            "type": "integer",
+            "title": "Match Count"
+          },
+          "scenario_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Scenario Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_gl_records",
+          "total_sub_records",
+          "matched_gl_records",
+          "matched_sub_records",
+          "unmatched_gl_records",
+          "unmatched_sub_records",
+          "match_count",
+          "scenario_counts"
+        ],
+        "title": "DeterministicSummary"
+      },
+      "ExportFile": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "path",
+          "sha256",
+          "size_bytes"
+        ],
+        "title": "ExportFile",
+        "description": "Metadata for one exported file."
+      },
+      "ExportResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "export_dir": {
+            "type": "string",
+            "title": "Export Dir"
+          },
+          "exported_at": {
+            "type": "string",
+            "title": "Exported At"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ExportFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "export_dir",
+          "exported_at",
+          "files",
+          "snapshot"
+        ],
+        "title": "ExportResponse",
+        "description": "Response body for POST /{session_id}/export."
+      },
+      "FileProfilingSummary": {
+        "properties": {
+          "file_key": {
+            "type": "string",
+            "title": "File Key"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "null_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Null Counts"
+          },
+          "null_percentages": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Null Percentages"
+          },
+          "duplicate_row_count": {
+            "type": "integer",
+            "title": "Duplicate Row Count"
+          },
+          "numeric_distributions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NumericDistributionSchema"
+            },
+            "type": "object",
+            "title": "Numeric Distributions"
+          },
+          "date_ranges": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DateRangeSchema"
+            },
+            "type": "object",
+            "title": "Date Ranges"
+          },
+          "entity_distribution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Entity Distribution"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_key",
+          "row_count",
+          "null_counts",
+          "null_percentages",
+          "duplicate_row_count",
+          "numeric_distributions",
+          "date_ranges",
+          "entity_distribution"
+        ],
+        "title": "FileProfilingSummary"
+      },
+      "FileValidationSummary": {
+        "properties": {
+          "file_key": {
+            "type": "string",
+            "title": "File Key"
+          },
+          "is_valid": {
+            "type": "boolean",
+            "title": "Is Valid"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "columns_validated": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns Validated"
+          },
+          "schema_hash": {
+            "type": "string",
+            "title": "Schema Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_key",
+          "is_valid",
+          "row_count",
+          "columns_validated",
+          "schema_hash"
+        ],
+        "title": "FileValidationSummary",
+        "description": "Per-file validation result included in the success response."
+      },
+      "FinalConsolidationResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ConsolidationSummary"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "summary",
+          "snapshot"
+        ],
+        "title": "FinalConsolidationResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "MatchDecision": {
+        "properties": {
+          "match_id": {
+            "type": "string",
+            "title": "Match Id"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "decision"
+        ],
+        "title": "MatchDecision"
+      },
+      "MatchRecordSchema": {
+        "properties": {
+          "match_id": {
+            "type": "string",
+            "title": "Match Id"
+          },
+          "record_ids_A": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Record Ids A"
+          },
+          "record_ids_B": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Record Ids B"
+          },
+          "scenario_id": {
+            "type": "integer",
+            "title": "Scenario Id"
+          },
+          "scenario_description": {
+            "type": "string",
+            "title": "Scenario Description"
+          },
+          "confidence_score": {
+            "type": "number",
+            "title": "Confidence Score"
+          },
+          "grouping_type": {
+            "type": "string",
+            "title": "Grouping Type"
+          },
+          "user_status": {
+            "type": "string",
+            "title": "User Status"
+          },
+          "override_flag": {
+            "type": "boolean",
+            "title": "Override Flag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "record_ids_A",
+          "record_ids_B",
+          "scenario_id",
+          "scenario_description",
+          "confidence_score",
+          "grouping_type",
+          "user_status",
+          "override_flag"
+        ],
+        "title": "MatchRecordSchema"
+      },
+      "NormalizationEntrySchema": {
+        "properties": {
+          "original_vendor": {
+            "type": "string",
+            "title": "Original Vendor"
+          },
+          "normalized_vendor": {
+            "type": "string",
+            "title": "Normalized Vendor"
+          },
+          "matched_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched To"
+          },
+          "match_source": {
+            "type": "string",
+            "title": "Match Source"
+          },
+          "similarity_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity Score"
+          },
+          "ai_confidence_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Confidence Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "original_vendor",
+          "normalized_vendor",
+          "matched_to",
+          "match_source",
+          "similarity_score",
+          "ai_confidence_score"
+        ],
+        "title": "NormalizationEntrySchema"
+      },
+      "NormalizationSummary": {
+        "properties": {
+          "total_unique_gl_vendors": {
+            "type": "integer",
+            "title": "Total Unique Gl Vendors"
+          },
+          "tier1_count": {
+            "type": "integer",
+            "title": "Tier1 Count"
+          },
+          "tier2_count": {
+            "type": "integer",
+            "title": "Tier2 Count"
+          },
+          "tier3_count": {
+            "type": "integer",
+            "title": "Tier3 Count"
+          },
+          "threshold_used": {
+            "type": "number",
+            "title": "Threshold Used"
+          },
+          "alias_version": {
+            "type": "string",
+            "title": "Alias Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_unique_gl_vendors",
+          "tier1_count",
+          "tier2_count",
+          "tier3_count",
+          "threshold_used",
+          "alias_version"
+        ],
+        "title": "NormalizationSummary"
+      },
+      "NumericDistributionSchema": {
+        "properties": {
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Std"
+          },
+          "sum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sum"
+          },
+          "null_count": {
+            "type": "integer",
+            "title": "Null Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "min",
+          "max",
+          "mean",
+          "median",
+          "std",
+          "sum",
+          "null_count"
+        ],
+        "title": "NumericDistributionSchema"
+      },
+      "PreprocessingResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "normalization_summary": {
+            "$ref": "#/components/schemas/NormalizationSummary"
+          },
+          "vendor_normalization_map": {
+            "items": {
+              "$ref": "#/components/schemas/NormalizationEntrySchema"
+            },
+            "type": "array",
+            "title": "Vendor Normalization Map"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "normalization_summary",
+          "vendor_normalization_map",
+          "snapshot"
+        ],
+        "title": "PreprocessingResponse"
+      },
+      "ProbabilisticMatchSchema": {
+        "properties": {
+          "match_id": {
+            "type": "string",
+            "title": "Match Id"
+          },
+          "record_ids_A": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Record Ids A"
+          },
+          "record_ids_B": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Record Ids B"
+          },
+          "final_similarity": {
+            "type": "number",
+            "title": "Final Similarity"
+          },
+          "component_scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Component Scores"
+          },
+          "grouping_type": {
+            "type": "string",
+            "title": "Grouping Type"
+          },
+          "user_status": {
+            "type": "string",
+            "title": "User Status"
+          },
+          "override_flag": {
+            "type": "boolean",
+            "title": "Override Flag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "match_id",
+          "record_ids_A",
+          "record_ids_B",
+          "final_similarity",
+          "component_scores",
+          "grouping_type",
+          "user_status",
+          "override_flag"
+        ],
+        "title": "ProbabilisticMatchSchema"
+      },
+      "ProbabilisticResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ProbabilisticSummary"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/ProbabilisticMatchSchema"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "summary",
+          "matches",
+          "snapshot"
+        ],
+        "title": "ProbabilisticResponse"
+      },
+      "ProbabilisticReviewRequest": {
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/MatchDecision"
+            },
+            "type": "array",
+            "title": "Decisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decisions"
+        ],
+        "title": "ProbabilisticReviewRequest"
+      },
+      "ProbabilisticReviewResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "accepted_count": {
+            "type": "integer",
+            "title": "Accepted Count"
+          },
+          "rejected_count": {
+            "type": "integer",
+            "title": "Rejected Count"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "accepted_count",
+          "rejected_count",
+          "snapshot"
+        ],
+        "title": "ProbabilisticReviewResponse"
+      },
+      "ProbabilisticSummary": {
+        "properties": {
+          "total_gl_records": {
+            "type": "integer",
+            "title": "Total Gl Records"
+          },
+          "total_sub_records": {
+            "type": "integer",
+            "title": "Total Sub Records"
+          },
+          "matched_gl_records": {
+            "type": "integer",
+            "title": "Matched Gl Records"
+          },
+          "matched_sub_records": {
+            "type": "integer",
+            "title": "Matched Sub Records"
+          },
+          "unmatched_gl_records": {
+            "type": "integer",
+            "title": "Unmatched Gl Records"
+          },
+          "unmatched_sub_records": {
+            "type": "integer",
+            "title": "Unmatched Sub Records"
+          },
+          "match_count": {
+            "type": "integer",
+            "title": "Match Count"
+          },
+          "threshold_used": {
+            "type": "number",
+            "title": "Threshold Used"
+          },
+          "weights_used": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Weights Used"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_gl_records",
+          "total_sub_records",
+          "matched_gl_records",
+          "matched_sub_records",
+          "unmatched_gl_records",
+          "unmatched_sub_records",
+          "match_count",
+          "threshold_used",
+          "weights_used"
+        ],
+        "title": "ProbabilisticSummary"
+      },
+      "ProfilingMetrics": {
+        "properties": {
+          "files": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileProfilingSummary"
+            },
+            "type": "object",
+            "title": "Files"
+          },
+          "cross_file": {
+            "$ref": "#/components/schemas/CrossFileSummarySchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files",
+          "cross_file"
+        ],
+        "title": "ProfilingMetrics"
+      },
+      "ProfilingResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/ProfilingMetrics"
+          },
+          "narrative": {
+            "type": "string",
+            "title": "Narrative"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "metrics",
+          "narrative",
+          "snapshot"
+        ],
+        "title": "ProfilingResponse"
+      },
+      "ReconciliationState": {
+        "type": "string",
+        "enum": [
+          "initialized",
+          "files_loaded",
+          "profiled",
+          "preprocessed",
+          "deterministic_complete",
+          "deterministic_review_complete",
+          "probabilistic_complete",
+          "probabilistic_review_complete",
+          "ai_suggested",
+          "ai_review_complete",
+          "final_consolidated",
+          "finalized"
+        ],
+        "title": "ReconciliationState"
+      },
+      "SessionCreateRequest": {
+        "properties": {
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Optional config overrides (weights, thresholds, ai_model, etc.)"
+          }
+        },
+        "type": "object",
+        "title": "SessionCreateRequest"
+      },
+      "SessionCreateResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "current_state": {
+            "type": "string",
+            "title": "Current State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "current_state"
+        ],
+        "title": "SessionCreateResponse"
+      },
+      "SessionListResponse": {
+        "properties": {
+          "session_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Session Ids"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_ids",
+          "count"
+        ],
+        "title": "SessionListResponse"
+      },
+      "SessionStatusResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "current_state": {
+            "type": "string",
+            "title": "Current State"
+          },
+          "is_review_phase": {
+            "type": "boolean",
+            "title": "Is Review Phase"
+          },
+          "snapshot_count": {
+            "type": "integer",
+            "title": "Snapshot Count"
+          },
+          "matching_summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Matching Summary",
+            "description": "Record count per matching bucket: deterministic, probabilistic, ai_suggested, final, rejected"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "current_state",
+          "is_review_phase",
+          "snapshot_count",
+          "matching_summary"
+        ],
+        "title": "SessionStatusResponse"
+      },
+      "SnapshotDetailResponse": {
+        "properties": {
+          "pre_transition_state": {
+            "type": "string",
+            "title": "Pre Transition State"
+          },
+          "captured_at": {
+            "type": "string",
+            "title": "Captured At"
+          },
+          "triggered_by": {
+            "type": "string",
+            "title": "Triggered By"
+          },
+          "integrity_hash": {
+            "type": "string",
+            "title": "Integrity Hash"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "runtime_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Runtime Snapshot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pre_transition_state",
+          "captured_at",
+          "triggered_by",
+          "integrity_hash",
+          "session_id",
+          "runtime_snapshot"
+        ],
+        "title": "SnapshotDetailResponse"
+      },
+      "SnapshotInfo": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "integrity_hash": {
+            "type": "string",
+            "title": "Integrity Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "integrity_hash"
+        ],
+        "title": "SnapshotInfo"
+      },
+      "SnapshotListResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotSummary"
+            },
+            "type": "array",
+            "title": "Snapshots"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "snapshots",
+          "count"
+        ],
+        "title": "SnapshotListResponse"
+      },
+      "SnapshotSummary": {
+        "properties": {
+          "pre_transition_state": {
+            "type": "string",
+            "title": "Pre Transition State"
+          },
+          "captured_at": {
+            "type": "string",
+            "title": "Captured At"
+          },
+          "triggered_by": {
+            "type": "string",
+            "title": "Triggered By"
+          },
+          "integrity_hash": {
+            "type": "string",
+            "title": "Integrity Hash"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pre_transition_state",
+          "captured_at",
+          "triggered_by",
+          "integrity_hash"
+        ],
+        "title": "SnapshotSummary"
+      },
+      "TransitionRequest": {
+        "properties": {
+          "triggered_by": {
+            "type": "string",
+            "title": "Triggered By",
+            "description": "Identifier of the actor requesting the transition (user ID or 'system')",
+            "default": "system"
+          }
+        },
+        "type": "object",
+        "title": "TransitionRequest"
+      },
+      "TransitionResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "previous_state": {
+            "type": "string",
+            "title": "Previous State"
+          },
+          "current_state": {
+            "type": "string",
+            "title": "Current State"
+          },
+          "snapshot_key": {
+            "type": "string",
+            "title": "Snapshot Key",
+            "description": "Key under which the pre-transition snapshot was stored"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "previous_state",
+          "current_state",
+          "snapshot_key"
+        ],
+        "title": "TransitionResponse"
+      },
+      "UploadSuccessResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "row_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Row Counts"
+          },
+          "validation": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileValidationSummary"
+            },
+            "type": "object",
+            "title": "Validation"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "state",
+          "row_counts",
+          "validation",
+          "snapshot"
+        ],
+        "title": "UploadSuccessResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

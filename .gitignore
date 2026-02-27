@@ -1,0 +1,19 @@
+# Python cache
+__pycache__/
+.pytest_cache/
+
+# Logs
+logs/
+
+# Local IDE
+.vscode/
+
+# Claude local state
+.claude/
+
+# Data files (local only)
+data/
+
+# OS junk
+.DS_Store
+Thumbs.db

@@ -1,0 +1,37 @@
+# Version control
+.git
+.gitignore
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+
+# Virtual environments
+.venv
+env
+venv
+
+# Node / frontend (separate container or build step)
+node_modules
+frontend
+
+# Test suite (not needed at runtime)
+tests
+
+# Raw data files (mounted or provided at runtime; not baked into image)
+data
+
+# Local logs and scratch dirs
+logs
+app
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+
+# Conda environment spec (not needed in Docker)
+environment_ai_close.yml

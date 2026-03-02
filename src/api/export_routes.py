@@ -20,7 +20,10 @@ Architecture notes:
 - No recomputation. This is a pure output generation step.
 """
 
+import os
+
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 import src.core.runtime_manager as rm
 from src.core.state_machine import ReconciliationState
@@ -152,4 +155,99 @@ def run_finalization_export(session_id: str):
             key=            latest.get("pre_transition_state", ""),
             integrity_hash= latest.get("integrity_hash", ""),
         ),
+    )
+
+
+@router.get("/{session_id}/export", response_model=ExportResponse)
+def get_export_manifest(session_id: str):
+    """
+    Return the stored export manifest for a finalized session.
+
+    Allows the frontend to reload file metadata (e.g. after navigation or page refresh)
+    without re-running the export.  Only available once the session is FINALIZED.
+    """
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+    if current != ReconciliationState.FINALIZED:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Export manifest is only available in 'finalized' state. "
+                f"Current state is '{current.value}'."
+            ),
+        )
+
+    runtime     = rm.get_runtime(session_id)
+    export_meta = runtime.get("export", {})
+    if not export_meta:
+        raise HTTPException(status_code=404, detail="No export metadata found for this session.")
+
+    snapshots = rm.get_session_snapshots(session_id)
+    latest    = snapshots[-1] if snapshots else {}
+
+    return ExportResponse(
+        session_id=  session_id,
+        state=       current.value,
+        export_dir=  export_meta.get("export_dir",  ""),
+        exported_at= export_meta.get("exported_at", ""),
+        files=[
+            ExportFile(
+                filename=   f["filename"],
+                path=       f["path"],
+                sha256=     f["sha256"],
+                size_bytes= f["size_bytes"],
+            )
+            for f in export_meta.get("files", [])
+        ],
+        snapshot=SnapshotInfo(
+            key=            latest.get("pre_transition_state", ""),
+            integrity_hash= latest.get("integrity_hash", ""),
+        ),
+    )
+
+
+@router.get("/{session_id}/export/files/{filename}")
+def download_export_file(session_id: str, filename: str):
+    """
+    Serve a single exported file for browser download.
+
+    Only files that appear in this session's export manifest can be served,
+    preventing path-traversal attacks.  Requires FINALIZED state.
+    """
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+    if current != ReconciliationState.FINALIZED:
+        raise HTTPException(
+            status_code=409,
+            detail="File downloads are only available in 'finalized' state.",
+        )
+
+    runtime     = rm.get_runtime(session_id)
+    export_meta = runtime.get("export", {})
+    manifest_files = export_meta.get("files", [])
+
+    # Validate filename against manifest (prevents path traversal)
+    entry = next((f for f in manifest_files if f["filename"] == filename), None)
+    if entry is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"File '{filename}' is not part of this session's export.",
+        )
+
+    path = entry["path"]
+    if not os.path.exists(path):
+        raise HTTPException(
+            status_code=410,
+            detail=f"File has been removed from the server: {filename}",
+        )
+
+    media_type = "application/pdf" if filename.endswith(".pdf") else "text/csv"
+    return FileResponse(
+        path=       path,
+        filename=   filename,
+        media_type= media_type,
     )

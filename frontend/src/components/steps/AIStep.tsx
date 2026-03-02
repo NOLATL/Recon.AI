@@ -1,8 +1,34 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { runAI } from '@/api/endpoints'
 import type { AIResponse, AIMatch } from '@/schemas'
 import ErrorDisplay from '@/components/ErrorDisplay'
+import DownloadPanel, { type PanelSheet } from '@/components/DownloadPanel'
+
+function buildAISheets(data: AIResponse): PanelSheet[] {
+  const s = data.summary
+  const summaryRows: Record<string, unknown>[] = [
+    { Metric: 'Suggestion Count', Value: s.suggestion_count },
+    { Metric: 'Residual GL',      Value: s.total_residual_gl },
+    { Metric: 'Residual Sub',     Value: s.total_residual_sub },
+    { Metric: 'Model Used',       Value: s.model_used },
+    { Metric: 'Prompt Version',   Value: s.prompt_version },
+  ]
+  const suggestionRows = data.suggestions.map((m) => ({
+    'Match ID':        m.match_id,
+    'Grouping':        m.grouping_type,
+    'AI Confidence':   m.ai_confidence_score,
+    'Materiality':     m.materiality,
+    'GL IDs':          m.record_ids_A.join(', '),
+    'Sub IDs':         m.record_ids_B.join(', '),
+    'Reasoning':       m.reasoning_narrative,
+    'Status':          m.user_status,
+  }))
+  return [
+    { id: 'summary',     label: 'Summary',                                 name: 'Summary',     rows: summaryRows },
+    { id: 'suggestions', label: `AI Suggestions (${data.suggestions.length})`, name: 'AI Suggestions', rows: suggestionRows },
+  ]
+}
 
 interface Props {
   sessionId: string
@@ -92,6 +118,7 @@ function AIMatchesTable({ suggestions }: { suggestions: AIMatch[] }) {
 
 function AIResult({ data }: { data: AIResponse }) {
   const s = data.summary
+  const aiSheets = useMemo(() => buildAISheets(data), [data])
   return (
     <div className="mt-6 space-y-5">
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -119,6 +146,11 @@ function AIResult({ data }: { data: AIResponse }) {
         <AIMatchesTable suggestions={data.suggestions} />
       </div>
 
+      <DownloadPanel
+        filename={`ai_suggestions_${data.session_id.slice(0, 8)}`}
+        sheets={aiSheets}
+      />
+
       <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm text-green-800">
         AI phase complete. State: <strong>{data.state}</strong>. Proceed to AI Review.
       </div>
@@ -130,8 +162,20 @@ export default function AIStep({ sessionId, onSuccess }: Props) {
   const mutation = useMutation({
     mutationFn: () => runAI(sessionId),
     onSuccess: (data) => {
-      // Cache AI suggestions for the review step
-      sessionStorage.setItem(`ai_suggestions_${sessionId}`, JSON.stringify(data.suggestions))
+      const key = `ai_result_${sessionId}`
+      try {
+        sessionStorage.setItem(key, JSON.stringify(data))
+      } catch {
+        try {
+          sessionStorage.setItem(key, JSON.stringify({
+            ...data,
+            gl_pool_records: [],
+            sub_pool_records: [],
+          }))
+        } catch {
+          // Skip caching — review step shows fallback message
+        }
+      }
       onSuccess()
     },
   })

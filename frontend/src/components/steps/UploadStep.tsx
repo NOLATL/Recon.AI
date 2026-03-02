@@ -112,7 +112,14 @@ export default function UploadStep({ sessionId, onSuccess }: Props) {
 
   const mutation = useMutation({
     mutationFn: () => uploadFiles(sessionId, coa!, gl!, sub!),
-    onSuccess,
+    onSuccess: (data) => {
+      try {
+        sessionStorage.setItem(`upload_result_${sessionId}`, JSON.stringify(data))
+      } catch {
+        // Small payload — skip caching if quota full, step will still advance
+      }
+      onSuccess()
+    },
   })
 
   const canSubmit = !!coa && !!gl && !!sub && !mutation.isPending

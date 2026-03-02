@@ -1,6 +1,6 @@
 """Pydantic v2 response schemas for the probabilistic matching endpoints."""
 
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel
 
@@ -31,11 +31,15 @@ class ProbabilisticSummary(BaseModel):
 
 
 class ProbabilisticResponse(BaseModel):
-    session_id: str
-    state:      str
-    summary:    ProbabilisticSummary
-    matches:    List[ProbabilisticMatchSchema]
-    snapshot:   SnapshotInfo
+    session_id:       str
+    state:            str
+    summary:          ProbabilisticSummary
+    matches:          List[ProbabilisticMatchSchema]
+    # Serialised rows for only the GL/Sub records that appear in at least one match.
+    # Lets the review UI show full record detail without sending the entire residual pool.
+    gl_pool_records:  List[Dict[str, Any]]
+    sub_pool_records: List[Dict[str, Any]]
+    snapshot:         SnapshotInfo
 
 
 # ---------------------------------------------------------------------------

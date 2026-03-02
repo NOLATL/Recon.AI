@@ -29,11 +29,13 @@ class AISummary(BaseModel):
 
 
 class AIResponse(BaseModel):
-    session_id:  str
-    state:       str
-    summary:     AISummary
-    suggestions: List[AIMatchSchema]
-    snapshot:    SnapshotInfo
+    session_id:       str
+    state:            str
+    summary:          AISummary
+    suggestions:      List[AIMatchSchema]
+    gl_pool_records:  List[Dict[str, Any]]
+    sub_pool_records: List[Dict[str, Any]]
+    snapshot:         SnapshotInfo
 
 
 # ---------------------------------------------------------------------------

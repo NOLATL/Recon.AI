@@ -17,6 +17,11 @@ Architecture notes:
 - Both endpoints reject recomputation once their target state is reached.
 """
 
+from collections import defaultdict
+from typing import Any, Dict, List, Set
+
+import numpy as np
+import pandas as pd
 from fastapi import APIRouter, HTTPException
 
 import src.core.runtime_manager as rm
@@ -26,12 +31,112 @@ from src.schemas.deterministic import (
     DeterministicReviewResponse,
     DeterministicSummary,
     MatchRecordSchema,
+    ScenarioAmountSummary,
 )
 from src.schemas.intake import SnapshotInfo
-from src.services.deterministic_matching import run_deterministic_matching
+from src.services.deterministic_matching import DeterministicResult, run_deterministic_matching
 
 router = APIRouter(prefix="/reconciliation", tags=["deterministic"])
 
+
+# ---------------------------------------------------------------------------
+# Serialisation helpers
+# ---------------------------------------------------------------------------
+
+def _coerce(v: Any) -> Any:
+    """Convert numpy scalar types to plain Python primitives for JSON safety."""
+    if isinstance(v, np.integer):
+        return int(v)
+    if isinstance(v, np.floating):
+        return None if np.isnan(v) else float(v)
+    if isinstance(v, np.bool_):
+        return bool(v)
+    if isinstance(v, float) and np.isnan(v):
+        return None
+    return v
+
+
+def _serialize_df(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """Serialise a DataFrame to a JSON-safe list of dicts.
+
+    Steps:
+      1. Stringify all datetime columns (→ YYYY-MM-DD).
+      2. Replace NaN / NaT with None.
+      3. Coerce numpy scalar types to Python primitives.
+    """
+    if df is None or df.empty:
+        return []
+
+    df_copy = df.copy()
+
+    # Stringify datetime columns
+    for col in df_copy.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
+        df_copy[col] = df_copy[col].dt.strftime("%Y-%m-%d")
+
+    # Replace NaN with None
+    df_copy = df_copy.where(df_copy.notna(), other=None)
+
+    records = df_copy.to_dict(orient="records")
+    return [{k: _coerce(v) for k, v in row.items()} for row in records]
+
+
+def _compute_dollar_totals(
+    result: DeterministicResult,
+    gl_df: pd.DataFrame,
+    sub_df: pd.DataFrame,
+) -> tuple[float, float, List[ScenarioAmountSummary]]:
+    """Compute matched dollar amounts globally and per scenario.
+
+    Returns:
+        (total_matched_gl_amount, total_matched_sub_amount, scenario_amount_summaries)
+    """
+    # Build id → amount lookup (str keys for reliable set intersection)
+    gl_amount_map: Dict[str, float] = dict(
+        zip(
+            gl_df["gl_id"].astype(str),
+            pd.to_numeric(gl_df["amount"], errors="coerce").fillna(0.0),
+        )
+    )
+    sub_amount_map: Dict[str, float] = dict(
+        zip(
+            sub_df["subledger_id"].astype(str),
+            pd.to_numeric(sub_df["amount"], errors="coerce").fillna(0.0),
+        )
+    )
+
+    all_gl_ids: Set[str] = set()
+    all_sub_ids: Set[str] = set()
+    scenario_gl: Dict[int, Set[str]] = defaultdict(set)
+    scenario_sub: Dict[int, Set[str]] = defaultdict(set)
+
+    for m in result.matches:
+        all_gl_ids.update(m.record_ids_A)
+        all_sub_ids.update(m.record_ids_B)
+        scenario_gl[m.scenario_id].update(m.record_ids_A)
+        scenario_sub[m.scenario_id].update(m.record_ids_B)
+
+    total_gl  = round(sum(gl_amount_map.get(i, 0.0)  for i in all_gl_ids),  2)
+    total_sub = round(sum(sub_amount_map.get(i, 0.0) for i in all_sub_ids), 2)
+
+    summaries: List[ScenarioAmountSummary] = []
+    for sc_id in sorted(scenario_gl.keys()):
+        sc_gl  = round(sum(gl_amount_map.get(i, 0.0)  for i in scenario_gl[sc_id]),  2)
+        sc_sub = round(sum(sub_amount_map.get(i, 0.0) for i in scenario_sub[sc_id]), 2)
+        summaries.append(
+            ScenarioAmountSummary(
+                scenario_id=sc_id,
+                match_count=result.scenario_counts.get(sc_id, 0),
+                total_gl_amount=sc_gl,
+                total_sub_amount=sc_sub,
+            )
+        )
+
+    return total_gl, total_sub, summaries
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Run deterministic matching
+# ---------------------------------------------------------------------------
 
 @router.post("/{session_id}/deterministic", response_model=DeterministicResponse)
 def run_deterministic(session_id: str):
@@ -69,10 +174,10 @@ def run_deterministic(session_id: str):
         )
 
     # --- Pull inputs from runtime ---
-    runtime   = rm.get_runtime(session_id)
-    clean     = runtime.get("clean_data", {})
-    gl_df     = clean.get("gl")
-    sub_df    = clean.get("subledger")
+    runtime = rm.get_runtime(session_id)
+    clean   = runtime.get("clean_data", {})
+    gl_df   = clean.get("gl")
+    sub_df  = clean.get("subledger")
 
     if gl_df is None or sub_df is None:
         raise HTTPException(
@@ -104,6 +209,11 @@ def run_deterministic(session_id: str):
     except InvalidStateTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
+    # --- Compute dollar totals ---
+    total_gl_amount, total_sub_amount, scenario_summaries = _compute_dollar_totals(
+        result, gl_df, sub_df
+    )
+
     # --- Build response ---
     snapshots = rm.get_session_snapshots(session_id)
     latest    = snapshots[-1] if snapshots else {}
@@ -112,22 +222,33 @@ def run_deterministic(session_id: str):
         session_id=session_id,
         state=rm.get_current_state(session_id).value,
         summary=DeterministicSummary(
-            total_gl_records=     result.total_gl,
-            total_sub_records=    result.total_sub,
-            matched_gl_records=   result.matched_gl,
-            matched_sub_records=  result.matched_sub,
-            unmatched_gl_records= len(result.residual_gl),
-            unmatched_sub_records=len(result.residual_sub),
-            match_count=          len(result.matches),
-            scenario_counts=      result.scenario_counts,
+            total_gl_records=          result.total_gl,
+            total_sub_records=         result.total_sub,
+            matched_gl_records=        result.matched_gl,
+            matched_sub_records=       result.matched_sub,
+            unmatched_gl_records=      len(result.residual_gl),
+            unmatched_sub_records=     len(result.residual_sub),
+            match_count=               len(result.matches),
+            scenario_counts=           result.scenario_counts,
+            total_matched_gl_amount=   total_gl_amount,
+            total_matched_sub_amount=  total_sub_amount,
+            scenario_amount_summaries= scenario_summaries,
         ),
         matches=[MatchRecordSchema(**m.to_dict()) for m in result.matches],
+        gl_records=           _serialize_df(gl_df),
+        sub_records=          _serialize_df(sub_df),
+        residual_gl_records=  _serialize_df(result.residual_gl),
+        residual_sub_records= _serialize_df(result.residual_sub),
         snapshot=SnapshotInfo(
             key=            latest.get("pre_transition_state", ""),
             integrity_hash= latest.get("integrity_hash", ""),
         ),
     )
 
+
+# ---------------------------------------------------------------------------
+# Phase 4A — Confirm deterministic review
+# ---------------------------------------------------------------------------
 
 @router.post(
     "/{session_id}/deterministic/review",

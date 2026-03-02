@@ -22,18 +22,6 @@ import AIReviewStep from '@/components/steps/AIReviewStep'
 import ConsolidateStep from '@/components/steps/ConsolidateStep'
 import ExportStep from '@/components/steps/ExportStep'
 
-function FinalizedPanel() {
-  return (
-    <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
-      <div className="text-3xl mb-2">✓</div>
-      <h3 className="text-lg font-semibold text-green-800">Reconciliation Finalized</h3>
-      <p className="text-sm text-green-700 mt-1">
-        All files have been exported. This session is complete.
-      </p>
-    </div>
-  )
-}
-
 function StepPanel({
   state,
   sessionId,
@@ -63,11 +51,15 @@ function StepPanel({
     case 'ai_suggested':
       return <AIReviewStep sessionId={sessionId} onSuccess={onSuccess} />
     case 'ai_review_complete':
-      return <ConsolidateStep sessionId={sessionId} onSuccess={onSuccess} />
+      return <ConsolidateStep sessionId={sessionId} state={state} onSuccess={onSuccess} />
     case 'final_consolidated':
-      return <ExportStep sessionId={sessionId} onSuccess={onSuccess} />
     case 'finalized':
-      return <FinalizedPanel />
+      return (
+        <div className="space-y-4">
+          <ConsolidateStep sessionId={sessionId} state={state} onSuccess={onSuccess} />
+          <ExportStep sessionId={sessionId} state={state} onSuccess={onSuccess} />
+        </div>
+      )
     default:
       return null
   }

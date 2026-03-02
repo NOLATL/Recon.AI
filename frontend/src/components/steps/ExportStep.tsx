@@ -1,13 +1,16 @@
-import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { runExport } from '@/api/endpoints'
-import type { ExportResponse, ExportFile } from '@/schemas'
+import { useState, useEffect } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { runExport, getExportManifest, getExportFileDownloadUrl } from '@/api/endpoints'
+import type { ExportResponse, ExportFile, ReconciliationState } from '@/schemas'
 import ErrorDisplay from '@/components/ErrorDisplay'
 
 interface Props {
   sessionId: string
+  state: ReconciliationState
   onSuccess: () => void
 }
+
+const CACHE_KEY = (id: string) => `export_result_${id}`
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -15,17 +18,18 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
-function ExportFileRow({ file }: { file: ExportFile }) {
-  const [copied, setCopied] = useState(false)
+const FILE_DESCRIPTIONS: Record<string, string> = {
+  'final_matches.csv': 'All accepted matches across all layers',
+  'residual_unmatched_gl.csv': 'GL records with no match found',
+  'residual_unmatched_sub.csv': 'Subledger records with no match found',
+  'rejected_matches.csv': 'All human-rejected match candidates',
+  'audit_log.csv': 'Complete audit trail of all decisions and transitions',
+  'reconciliation_report.pdf': 'Executive summary and statistics',
+}
 
-  const copyPath = () => {
-    navigator.clipboard.writeText(file.path).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }
-
+function ExportFileRow({ file, sessionId }: { file: ExportFile; sessionId: string }) {
   const isPdf = file.filename.endsWith('.pdf')
+  const downloadUrl = getExportFileDownloadUrl(sessionId, file.filename)
 
   return (
     <div className="border border-gray-200 rounded-md p-4">
@@ -42,7 +46,6 @@ function ExportFileRow({ file }: { file: ExportFile }) {
               {isPdf ? 'PDF' : 'CSV'}
             </span>
           </div>
-          <p className="text-xs font-mono text-gray-500 mt-1 truncate">{file.path}</p>
           <div className="flex gap-4 mt-1.5 text-xs text-gray-400">
             <span>{formatBytes(file.size_bytes)}</span>
             <span className="font-mono truncate max-w-[200px]" title={file.sha256}>
@@ -50,50 +53,72 @@ function ExportFileRow({ file }: { file: ExportFile }) {
             </span>
           </div>
         </div>
-        <button
-          onClick={copyPath}
-          className="flex-shrink-0 text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-md transition-colors"
+        <a
+          href={downloadUrl}
+          download={file.filename}
+          className="flex-shrink-0 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md transition-colors no-underline"
         >
-          {copied ? '✓ Copied' : 'Copy path'}
-        </button>
+          ↓ Download
+        </a>
       </div>
     </div>
   )
 }
 
-const FILE_DESCRIPTIONS: Record<string, string> = {
-  'final_matches.csv': 'All accepted matches across all layers',
-  'residual_unmatched_gl.csv': 'GL records with no match found',
-  'residual_unmatched_sub.csv': 'Subledger records with no match found',
-  'rejected_matches.csv': 'All human-rejected match candidates',
-  'audit_log.csv': 'Complete audit trail of all decisions and transitions',
-  'reconciliation_report.pdf': 'Executive summary and statistics',
+function DownloadAllButton({
+  files,
+  sessionId,
+}: {
+  files: ExportFile[]
+  sessionId: string
+}) {
+  const handleDownloadAll = () => {
+    files.forEach((f, i) => {
+      setTimeout(() => {
+        const a = document.createElement('a')
+        a.href = getExportFileDownloadUrl(sessionId, f.filename)
+        a.download = f.filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }, i * 300) // stagger to avoid browser blocking multiple downloads
+    })
+  }
+
+  return (
+    <button
+      onClick={handleDownloadAll}
+      className="text-sm bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-md transition-colors"
+    >
+      ↓ Download All ({files.length} files)
+    </button>
+  )
 }
 
-function ExportResult({ data }: { data: ExportResponse }) {
+function ExportResult({ data, sessionId }: { data: ExportResponse; sessionId: string }) {
   const totalSize = data.files.reduce((sum, f) => sum + f.size_bytes, 0)
 
   return (
     <div className="mt-6 space-y-4">
+      {/* Summary banner */}
       <div className="bg-green-50 border border-green-200 rounded-md p-4">
-        <p className="text-sm font-medium text-green-800 mb-2">Export complete!</p>
+        <p className="text-sm font-medium text-green-800 mb-2">
+          Export complete — session finalized
+        </p>
         <div className="text-sm text-green-700 space-y-1">
-          <p>
-            <strong>Export directory:</strong>{' '}
-            <span className="font-mono">{data.export_dir}</span>
-          </p>
           <p>
             <strong>Exported at:</strong> {new Date(data.exported_at).toLocaleString()}
           </p>
           <p>
-            <strong>Total size:</strong> {formatBytes(totalSize)}
-          </p>
-          <p>
-            <strong>State:</strong> {data.state} (terminal — no further transitions)
+            <strong>Total size:</strong> {formatBytes(totalSize)} across {data.files.length} files
           </p>
         </div>
       </div>
 
+      {/* Download all */}
+      <DownloadAllButton files={data.files} sessionId={sessionId} />
+
+      {/* Per-file list */}
       <div>
         <h4 className="text-sm font-medium text-gray-700 mb-3">
           Exported Files ({data.files.length})
@@ -104,53 +129,115 @@ function ExportResult({ data }: { data: ExportResponse }) {
               {FILE_DESCRIPTIONS[f.filename] && (
                 <p className="text-xs text-gray-400 mb-1 ml-1">{FILE_DESCRIPTIONS[f.filename]}</p>
               )}
-              <ExportFileRow file={f} />
+              <ExportFileRow file={f} sessionId={sessionId} />
             </div>
           ))}
         </div>
       </div>
 
-      <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-600">
-        The session is now <strong>finalized</strong>. No download endpoint is available — use the
-        file paths above to access exported files on the server.
+      <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-500">
+        <strong>Export directory (server):</strong>{' '}
+        <span className="font-mono">{data.export_dir}</span>
       </div>
     </div>
   )
 }
 
-export default function ExportStep({ sessionId, onSuccess }: Props) {
+export default function ExportStep({ sessionId, state, onSuccess }: Props) {
+  const isFinalized = state === 'finalized'
+
+  // Attempt to restore cached result from sessionStorage
+  const [cached, setCached] = useState<ExportResponse | null>(() => {
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY(sessionId))
+      return raw ? (JSON.parse(raw) as ExportResponse) : null
+    } catch {
+      return null
+    }
+  })
+
+  // When already finalized and no local cache, fetch the manifest from the backend
+  const manifestQuery = useQuery({
+    queryKey: ['export-manifest', sessionId],
+    queryFn: () => getExportManifest(sessionId),
+    enabled: isFinalized && !cached,
+    retry: 1,
+  })
+
+  // Persist fetched manifest to sessionStorage and local state
+  useEffect(() => {
+    if (manifestQuery.data && !cached) {
+      try {
+        sessionStorage.setItem(CACHE_KEY(sessionId), JSON.stringify(manifestQuery.data))
+      } catch {
+        // sessionStorage quota exceeded — skip caching
+      }
+      setCached(manifestQuery.data)
+    }
+  }, [manifestQuery.data, cached, sessionId])
+
   const mutation = useMutation({
     mutationFn: () => runExport(sessionId),
-    onSuccess,
+    onSuccess: (data) => {
+      try {
+        sessionStorage.setItem(CACHE_KEY(sessionId), JSON.stringify(data))
+      } catch {
+        // sessionStorage quota exceeded — skip caching
+      }
+      setCached(data)
+      onSuccess()
+    },
   })
+
+  const displayData = cached ?? mutation.data
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-6">
       <h2 className="text-base font-semibold text-gray-900 mb-1">Export & Finalize</h2>
-      <p className="text-sm text-gray-500 mb-2">
+      <p className="text-sm text-gray-500 mb-4">
         Generate all output files and finalize the session. This advances the session to the
         terminal <strong>finalized</strong> state — no further transitions are possible.
       </p>
-      <div className="bg-amber-50 border border-amber-100 rounded-md p-3 text-sm text-amber-800 mb-5">
-        Generates: final_matches.csv, residual_unmatched_gl.csv, residual_unmatched_sub.csv,
-        rejected_matches.csv, audit_log.csv, reconciliation_report.pdf
-      </div>
 
-      {mutation.error && (
-        <div className="mb-4">
-          <ErrorDisplay error={mutation.error} onRefresh={onSuccess} />
+      {/* Export button — only shown when not yet finalized */}
+      {!isFinalized && !displayData && (
+        <>
+          <div className="bg-amber-50 border border-amber-100 rounded-md p-3 text-sm text-amber-800 mb-5">
+            Generates: final_matches.csv, residual_unmatched_gl.csv, residual_unmatched_sub.csv,
+            rejected_matches.csv, audit_log.csv, reconciliation_report.pdf
+          </div>
+
+          {mutation.error && (
+            <div className="mb-4">
+              <ErrorDisplay error={mutation.error} onRefresh={onSuccess} />
+            </div>
+          )}
+
+          <button
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            className="bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
+          >
+            {mutation.isPending ? 'Exporting…' : 'Export & Finalize'}
+          </button>
+        </>
+      )}
+
+      {/* Loading state when fetching manifest for already-finalized session */}
+      {isFinalized && !displayData && (
+        <div className="mt-2 text-sm text-gray-500">
+          {manifestQuery.isLoading && 'Loading export manifest…'}
+          {manifestQuery.error && (
+            <ErrorDisplay
+              error={manifestQuery.error}
+              onRefresh={() => manifestQuery.refetch()}
+            />
+          )}
         </div>
       )}
 
-      <button
-        onClick={() => mutation.mutate()}
-        disabled={mutation.isPending}
-        className="bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
-      >
-        {mutation.isPending ? 'Exporting…' : 'Export & Finalize'}
-      </button>
-
-      {mutation.data && <ExportResult data={mutation.data} />}
+      {/* Results with download buttons */}
+      {displayData && <ExportResult data={displayData} sessionId={sessionId} />}
     </div>
   )
 }

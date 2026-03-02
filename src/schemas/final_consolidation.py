@@ -1,5 +1,7 @@
 """Pydantic v2 response schemas for the final consolidation endpoint."""
 
+from typing import Any, Dict, List
+
 from pydantic import BaseModel
 
 from src.schemas.intake import SnapshotInfo
@@ -17,7 +19,13 @@ class ConsolidationSummary(BaseModel):
 
 
 class FinalConsolidationResponse(BaseModel):
-    session_id: str
-    state:      str
-    summary:    ConsolidationSummary
-    snapshot:   SnapshotInfo
+    session_id:           str
+    state:                str
+    summary:              ConsolidationSummary
+    final_matches:        List[Dict[str, Any]]   # all accepted matches (tagged with layer)
+    gl_records:           List[Dict[str, Any]]   # GL records referenced by final matches
+    sub_records:          List[Dict[str, Any]]   # Sub records referenced by final matches
+    residual_gl_records:  List[Dict[str, Any]]   # unmatched GL records
+    residual_sub_records: List[Dict[str, Any]]   # unmatched Sub records
+    rejected_matches:     List[Dict[str, Any]]   # all rejected matches
+    snapshot:             SnapshotInfo

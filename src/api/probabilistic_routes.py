@@ -18,6 +18,9 @@ Architecture notes:
 - No re-review once PROBABILISTIC_REVIEW_COMPLETE (Phase 5A guard).
 """
 
+from typing import Any, Dict, List
+
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
@@ -39,6 +42,31 @@ from src.services.probabilistic_matching import (
 from src.services.probabilistic_review_service import process_probabilistic_review
 
 router = APIRouter(prefix="/reconciliation", tags=["probabilistic"])
+
+
+# ── Serialisation helpers (mirrors deterministic_routes) ──────────────────────
+
+def _coerce(v: Any) -> Any:
+    if isinstance(v, np.integer):
+        return int(v)
+    if isinstance(v, np.floating):
+        return None if np.isnan(v) else float(v)
+    if isinstance(v, np.bool_):
+        return bool(v)
+    if isinstance(v, float) and np.isnan(v):
+        return None
+    return v
+
+
+def _serialize_df(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if df is None or df.empty:
+        return []
+    df_copy = df.copy()
+    for col in df_copy.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
+        df_copy[col] = df_copy[col].dt.strftime("%Y-%m-%d")
+    df_copy = df_copy.where(df_copy.notna(), other=None)
+    records = df_copy.to_dict(orient="records")
+    return [{k: _coerce(v) for k, v in row.items()} for row in records]
 
 
 @router.post("/{session_id}/probabilistic", response_model=ProbabilisticResponse)
@@ -130,6 +158,26 @@ def run_probabilistic(session_id: str):
     except InvalidStateTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
+    # --- Collect record IDs referenced by matches (to slim the payload) ---
+    gl_ids_matched: set = set()
+    sub_ids_matched: set = set()
+    for m in result.matches:
+        for rid in m.record_ids_A:
+            gl_ids_matched.add(str(rid))
+        for rid in m.record_ids_B:
+            sub_ids_matched.add(str(rid))
+
+    matched_gl_df = (
+        gl_pool[gl_pool["gl_id"].astype(str).isin(gl_ids_matched)]
+        if not gl_pool.empty and "gl_id" in gl_pool.columns
+        else pd.DataFrame()
+    )
+    matched_sub_df = (
+        sub_pool[sub_pool["subledger_id"].astype(str).isin(sub_ids_matched)]
+        if not sub_pool.empty and "subledger_id" in sub_pool.columns
+        else pd.DataFrame()
+    )
+
     # --- Build response ---
     snapshots = rm.get_session_snapshots(session_id)
     latest    = snapshots[-1] if snapshots else {}
@@ -149,6 +197,8 @@ def run_probabilistic(session_id: str):
             weights_used=         result.weights_used,
         ),
         matches=[ProbabilisticMatchSchema(**m.to_dict()) for m in result.matches],
+        gl_pool_records= _serialize_df(matched_gl_df),
+        sub_pool_records=_serialize_df(matched_sub_df),
         snapshot=SnapshotInfo(
             key=            latest.get("pre_transition_state", ""),
             integrity_hash= latest.get("integrity_hash", ""),

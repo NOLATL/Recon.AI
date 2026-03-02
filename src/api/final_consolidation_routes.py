@@ -23,6 +23,10 @@ Architecture notes:
 - No recomputation once FINAL_CONSOLIDATED.
 """
 
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
 from fastapi import APIRouter, HTTPException
 
 import src.core.runtime_manager as rm
@@ -31,7 +35,129 @@ from src.schemas.final_consolidation import ConsolidationSummary, FinalConsolida
 from src.schemas.intake import SnapshotInfo
 from src.services.final_consolidation_service import run_final_consolidation
 
+
+# ── Serialisation helpers ────────────────────────────────────────────────────
+
+def _coerce(v: Any) -> Any:
+    if isinstance(v, np.integer):
+        return int(v)
+    if isinstance(v, np.floating):
+        return None if np.isnan(v) else float(v)
+    if isinstance(v, np.bool_):
+        return bool(v)
+    if isinstance(v, float) and np.isnan(v):
+        return None
+    return v
+
+
+def _serialize_df(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if df is None or df.empty:
+        return []
+    df_copy = df.copy()
+    for col in df_copy.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
+        df_copy[col] = df_copy[col].dt.strftime("%Y-%m-%d")
+    df_copy = df_copy.where(df_copy.notna(), other=None)
+    records = df_copy.to_dict(orient="records")
+    return [{k: _coerce(v) for k, v in row.items()} for row in records]
+
+
+def _serialize_matches(matches: list, layer: str) -> List[Dict[str, Any]]:
+    """Coerce match dicts and tag each with its source layer."""
+    result = []
+    for m in matches:
+        coerced = {k: _coerce(v) if not isinstance(v, (list, dict)) else v
+                   for k, v in m.items()}
+        coerced["layer"] = layer
+        result.append(coerced)
+    return result
+
 router = APIRouter(prefix="/reconciliation", tags=["consolidation"])
+
+
+# ── Shared response builder ───────────────────────────────────────────────────
+
+def _build_response(session_id: str) -> FinalConsolidationResponse:
+    """Assemble FinalConsolidationResponse from current runtime state (read-only, pure)."""
+    runtime      = rm.get_runtime(session_id)
+    matching     = runtime["matching"]
+    pool         = runtime.get("residual_pool", {})
+    clean        = runtime.get("clean_data", {})
+
+    det_matches  = matching.get("deterministic", [])
+    prob_matches = matching.get("probabilistic", [])
+    ai_final     = matching.get("final",         [])
+    rejected     = matching.get("rejected",      [])
+
+    residual_gl  = pool.get("gl",        None)
+    residual_sub = pool.get("subledger", None)
+
+    clean_gl  = clean.get("gl",        pd.DataFrame())
+    clean_sub = clean.get("subledger", pd.DataFrame())
+
+    result = run_final_consolidation(
+        det_matches=  det_matches,
+        prob_matches= prob_matches,
+        ai_final=     ai_final,
+        rejected=     rejected,
+        residual_gl=  residual_gl,
+        residual_sub= residual_sub,
+    )
+
+    dc = result.deterministic_match_count
+    pc = result.probabilistic_match_count
+    tagged_final = (
+        _serialize_matches(result.all_matches[:dc],         "deterministic") +
+        _serialize_matches(result.all_matches[dc:dc + pc],  "probabilistic") +
+        _serialize_matches(result.all_matches[dc + pc:],    "ai")
+    )
+    tagged_rejected = _serialize_matches(rejected, "rejected")
+
+    gl_ids_used:  set = set()
+    sub_ids_used: set = set()
+    for m in result.all_matches:
+        for rid in m.get("record_ids_A", []):
+            gl_ids_used.add(str(rid))
+        for rid in m.get("record_ids_B", []):
+            sub_ids_used.add(str(rid))
+
+    matched_gl_df = (
+        clean_gl[clean_gl["gl_id"].astype(str).isin(gl_ids_used)]
+        if not clean_gl.empty and "gl_id" in clean_gl.columns
+        else pd.DataFrame()
+    )
+    matched_sub_df = (
+        clean_sub[clean_sub["subledger_id"].astype(str).isin(sub_ids_used)]
+        if not clean_sub.empty and "subledger_id" in clean_sub.columns
+        else pd.DataFrame()
+    )
+
+    snapshots = rm.get_session_snapshots(session_id)
+    latest    = snapshots[-1] if snapshots else {}
+
+    return FinalConsolidationResponse(
+        session_id= session_id,
+        state=      rm.get_current_state(session_id).value,
+        summary=ConsolidationSummary(
+            deterministic_match_count= result.deterministic_match_count,
+            probabilistic_match_count= result.probabilistic_match_count,
+            ai_match_count=            result.ai_match_count,
+            total_match_count=         result.total_match_count,
+            residual_gl_count=         result.residual_gl_count,
+            residual_sub_count=        result.residual_sub_count,
+            rejected_count=            result.rejected_count,
+            override_count=            result.override_count,
+        ),
+        final_matches=        tagged_final,
+        gl_records=           _serialize_df(matched_gl_df),
+        sub_records=          _serialize_df(matched_sub_df),
+        residual_gl_records=  _serialize_df(residual_gl  if residual_gl  is not None else pd.DataFrame()),
+        residual_sub_records= _serialize_df(residual_sub if residual_sub is not None else pd.DataFrame()),
+        rejected_matches=     tagged_rejected,
+        snapshot=SnapshotInfo(
+            key=            latest.get("pre_transition_state", ""),
+            integrity_hash= latest.get("integrity_hash", ""),
+        ),
+    )
 
 
 @router.post("/{session_id}/consolidate", response_model=FinalConsolidationResponse)
@@ -76,7 +202,7 @@ def run_consolidation(session_id: str):
             ),
         )
 
-    # --- Pull inputs from runtime (read-only) ---
+    # --- Run consolidation (pure, no side effects) and write results ---
     runtime      = rm.get_runtime(session_id)
     matching     = runtime["matching"]
     pool         = runtime.get("residual_pool", {})
@@ -85,11 +211,9 @@ def run_consolidation(session_id: str):
     prob_matches = matching.get("probabilistic", [])
     ai_final     = matching.get("final",         [])
     rejected     = matching.get("rejected",      [])
-
     residual_gl  = pool.get("gl",        None)
     residual_sub = pool.get("subledger", None)
 
-    # --- Run consolidation (pure, no side effects) ---
     result = run_final_consolidation(
         det_matches=  det_matches,
         prob_matches= prob_matches,
@@ -101,7 +225,6 @@ def run_consolidation(session_id: str):
 
     # --- Write results BEFORE state advance so snapshot captures everything ---
     rm.write_matching_results(session_id, "final", result.all_matches)
-
     rm.write_consolidation(session_id, {
         "deterministic_match_count": result.deterministic_match_count,
         "probabilistic_match_count": result.probabilistic_match_count,
@@ -123,25 +246,33 @@ def run_consolidation(session_id: str):
     except InvalidStateTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    # --- Build response ---
-    snapshots = rm.get_session_snapshots(session_id)
-    latest    = snapshots[-1] if snapshots else {}
+    # --- Build and return response using shared helper ---
+    return _build_response(session_id)
 
-    return FinalConsolidationResponse(
-        session_id= session_id,
-        state=      rm.get_current_state(session_id).value,
-        summary=ConsolidationSummary(
-            deterministic_match_count= result.deterministic_match_count,
-            probabilistic_match_count= result.probabilistic_match_count,
-            ai_match_count=            result.ai_match_count,
-            total_match_count=         result.total_match_count,
-            residual_gl_count=         result.residual_gl_count,
-            residual_sub_count=        result.residual_sub_count,
-            rejected_count=            result.rejected_count,
-            override_count=            result.override_count,
-        ),
-        snapshot=SnapshotInfo(
-            key=            latest.get("pre_transition_state", ""),
-            integrity_hash= latest.get("integrity_hash", ""),
-        ),
-    )
+
+@router.get("/{session_id}/consolidate", response_model=FinalConsolidationResponse)
+def get_consolidation_result(session_id: str):
+    """
+    Retrieve the full consolidation result for a session that is already in
+    'final_consolidated' or 'finalized' state.
+
+    Allows the frontend to reload analytics (BANS, match table, residuals) after
+    navigation or page refresh without re-running consolidation.
+
+    Uses the same pure assembly logic as the POST endpoint — no side effects.
+    Returns 409 if the session has not yet been consolidated.
+    """
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+    if current not in (ReconciliationState.FINAL_CONSOLIDATED, ReconciliationState.FINALIZED):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Consolidation results are only available in 'final_consolidated' or "
+                f"'finalized' state.  Current state is '{current.value}'."
+            ),
+        )
+
+    return _build_response(session_id)

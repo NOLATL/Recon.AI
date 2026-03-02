@@ -1,4 +1,4 @@
-import { apiClient } from './client'
+import { apiClient, BASE_URL } from './client'
 import type {
   SessionCreateResponse,
   SessionListResponse,
@@ -88,8 +88,17 @@ export const confirmAIReview = (sessionId: string, body: AIReviewRequest) =>
 export const runConsolidate = (sessionId: string) =>
   apiClient.post<FinalConsolidationResponse>(`${r(sessionId)}/consolidate`)
 
+export const getConsolidationResult = (sessionId: string) =>
+  apiClient.get<FinalConsolidationResponse>(`${r(sessionId)}/consolidate`)
+
 export const runExport = (sessionId: string) =>
   apiClient.post<ExportResponse>(`${r(sessionId)}/export`)
+
+export const getExportManifest = (sessionId: string) =>
+  apiClient.get<ExportResponse>(`${r(sessionId)}/export`)
+
+export const getExportFileDownloadUrl = (sessionId: string, filename: string): string =>
+  `${BASE_URL}/reconciliation/${sessionId}/export/files/${encodeURIComponent(filename)}`
 
 // ── Snapshots ─────────────────────────────────────────────────────────────────
 

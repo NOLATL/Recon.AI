@@ -1,7 +1,40 @@
+import { useMemo } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { runProbabilistic } from '@/api/endpoints'
 import type { ProbabilisticResponse, ProbabilisticMatch } from '@/schemas'
 import ErrorDisplay from '@/components/ErrorDisplay'
+import DownloadPanel, { type PanelSheet } from '@/components/DownloadPanel'
+
+function buildProbSheets(data: ProbabilisticResponse): PanelSheet[] {
+  const s = data.summary
+  const summaryRows: Record<string, unknown>[] = [
+    { Metric: 'Match Count',    Value: s.match_count },
+    { Metric: 'GL Matched',     Value: s.matched_gl_records },
+    { Metric: 'Sub Matched',    Value: s.matched_sub_records },
+    { Metric: 'GL Residual',    Value: s.unmatched_gl_records },
+    { Metric: 'Sub Residual',   Value: s.unmatched_sub_records },
+    { Metric: 'Threshold Used', Value: `${(s.threshold_used * 100).toFixed(0)}%` },
+    ...Object.entries(s.weights_used).map(([k, v]) => ({
+      Metric: `Weight — ${k}`,
+      Value: `${(v * 100).toFixed(0)}%`,
+    })),
+  ]
+  const matchRows = data.matches.map((m) => ({
+    'Match ID': m.match_id,
+    'Grouping':  m.grouping_type,
+    'Similarity': m.final_similarity,
+    'GL IDs':    m.record_ids_A.join(', '),
+    'Sub IDs':   m.record_ids_B.join(', '),
+    'Status':    m.user_status,
+    ...Object.fromEntries(
+      Object.entries(m.component_scores).map(([k, v]) => [`Score — ${k}`, v]),
+    ),
+  }))
+  return [
+    { id: 'summary', label: 'Summary',                          name: 'Summary', rows: summaryRows },
+    { id: 'matches', label: `Matches (${data.matches.length})`, name: 'Matches', rows: matchRows },
+  ]
+}
 
 interface Props {
   sessionId: string
@@ -82,6 +115,7 @@ function MatchesTable({ matches }: { matches: ProbabilisticMatch[] }) {
 
 function ProbResult({ data }: { data: ProbabilisticResponse }) {
   const s = data.summary
+  const probSheets = useMemo(() => buildProbSheets(data), [data])
   return (
     <div className="mt-6 space-y-5">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -115,6 +149,11 @@ function ProbResult({ data }: { data: ProbabilisticResponse }) {
         <MatchesTable matches={data.matches} />
       </div>
 
+      <DownloadPanel
+        filename={`probabilistic_${data.session_id.slice(0, 8)}`}
+        sheets={probSheets}
+      />
+
       <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
         Probabilistic matching complete. State: <strong>{data.state}</strong>. Proceed to
         Probabilistic Review to accept or reject each match.
@@ -127,8 +166,20 @@ export default function ProbabilisticStep({ sessionId, onSuccess }: Props) {
   const mutation = useMutation({
     mutationFn: () => runProbabilistic(sessionId),
     onSuccess: (data) => {
-      // Cache matches for ProbabilisticReviewStep
-      sessionStorage.setItem(`prob_matches_${sessionId}`, JSON.stringify(data.matches))
+      const key = `prob_result_${sessionId}`
+      try {
+        sessionStorage.setItem(key, JSON.stringify(data))
+      } catch {
+        try {
+          sessionStorage.setItem(key, JSON.stringify({
+            ...data,
+            gl_pool_records: [],
+            sub_pool_records: [],
+          }))
+        } catch {
+          // Skip caching — review step shows fallback message
+        }
+      }
       onSuccess()
     },
   })

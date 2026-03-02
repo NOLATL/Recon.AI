@@ -182,6 +182,14 @@ export const MatchRecordSchema = z.object({
 })
 export type MatchRecord = z.infer<typeof MatchRecordSchema>
 
+export const ScenarioAmountSummarySchema = z.object({
+  scenario_id: z.number(),
+  match_count: z.number(),
+  total_gl_amount: z.number(),
+  total_sub_amount: z.number(),
+})
+export type ScenarioAmountSummary = z.infer<typeof ScenarioAmountSummarySchema>
+
 export const DeterministicSummarySchema = z.object({
   total_gl_records: z.number(),
   total_sub_records: z.number(),
@@ -191,6 +199,9 @@ export const DeterministicSummarySchema = z.object({
   unmatched_sub_records: z.number(),
   match_count: z.number(),
   scenario_counts: z.record(z.number()),
+  total_matched_gl_amount: z.number(),
+  total_matched_sub_amount: z.number(),
+  scenario_amount_summaries: z.array(ScenarioAmountSummarySchema),
 })
 export type DeterministicSummary = z.infer<typeof DeterministicSummarySchema>
 
@@ -199,6 +210,10 @@ export const DeterministicResponseSchema = z.object({
   state: z.string(),
   summary: DeterministicSummarySchema,
   matches: z.array(MatchRecordSchema),
+  gl_records: z.array(z.record(z.unknown())),
+  sub_records: z.array(z.record(z.unknown())),
+  residual_gl_records: z.array(z.record(z.unknown())),
+  residual_sub_records: z.array(z.record(z.unknown())),
   snapshot: SnapshotInfoSchema,
 })
 export type DeterministicResponse = z.infer<typeof DeterministicResponseSchema>
@@ -247,6 +262,8 @@ export const ProbabilisticResponseSchema = z.object({
   state: z.string(),
   summary: ProbabilisticSummarySchema,
   matches: z.array(ProbabilisticMatchSchema),
+  gl_pool_records: z.array(z.record(z.unknown())),
+  sub_pool_records: z.array(z.record(z.unknown())),
   snapshot: SnapshotInfoSchema,
 })
 export type ProbabilisticResponse = z.infer<typeof ProbabilisticResponseSchema>
@@ -305,6 +322,8 @@ export const AIResponseSchema = z.object({
   state: z.string(),
   summary: AISummarySchema,
   suggestions: z.array(AIMatchSchema),
+  gl_pool_records: z.array(z.record(z.unknown())),
+  sub_pool_records: z.array(z.record(z.unknown())),
   snapshot: SnapshotInfoSchema,
 })
 export type AIResponse = z.infer<typeof AIResponseSchema>
@@ -347,6 +366,12 @@ export const FinalConsolidationResponseSchema = z.object({
   session_id: z.string(),
   state: z.string(),
   summary: ConsolidationSummarySchema,
+  final_matches:        z.array(z.record(z.unknown())),
+  gl_records:           z.array(z.record(z.unknown())),
+  sub_records:          z.array(z.record(z.unknown())),
+  residual_gl_records:  z.array(z.record(z.unknown())),
+  residual_sub_records: z.array(z.record(z.unknown())),
+  rejected_matches:     z.array(z.record(z.unknown())),
   snapshot: SnapshotInfoSchema,
 })
 export type FinalConsolidationResponse = z.infer<

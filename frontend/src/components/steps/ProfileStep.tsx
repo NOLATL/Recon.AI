@@ -1,7 +1,9 @@
+import { useMemo } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { runProfile } from '@/api/endpoints'
 import type { ProfilingResponse, FileProfilingSummary } from '@/schemas'
 import ErrorDisplay from '@/components/ErrorDisplay'
+import DownloadPanel, { type PanelSheet } from '@/components/DownloadPanel'
 
 interface Props {
   sessionId: string
@@ -108,7 +110,9 @@ function FileCard({ summary }: { summary: FileProfilingSummary }) {
   )
 }
 
-function ProfileResult({ data }: { data: ProfilingResponse }) {
+function ProfileResult({ data, sessionId }: { data: ProfilingResponse; sessionId: string }) {
+  const sheets = useMemo(() => buildProfileSheets(data), [data])
+
   return (
     <div className="mt-6 space-y-5">
       {/* Narrative */}
@@ -150,8 +154,106 @@ function ProfileResult({ data }: { data: ProfilingResponse }) {
         </div>
       </div>
 
+      <DownloadPanel
+        filename={`profile_report_${sessionId.slice(0, 8)}`}
+        sheets={sheets}
+      />
+
       <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm text-green-800">
         Profiling complete. State: <strong>{data.state}</strong>
+      </div>
+    </div>
+  )
+}
+
+const FILE_LABELS: Record<string, string> = {
+  chart_of_accounts: 'Chart of Accounts',
+  gl: 'General Ledger',
+  subledger: 'Subledger',
+}
+
+// ── Download sheet builders ───────────────────────────────────────────────────
+
+function buildProfileSheets(data: ProfilingResponse): PanelSheet[] {
+  const cf = data.metrics.cross_file
+  const summaryRows: Record<string, unknown>[] = [
+    { Metric: 'GL Row Count',   Value: cf.gl_row_count },
+    { Metric: 'Sub Row Count',  Value: cf.subledger_row_count },
+    { Metric: 'Row Delta',      Value: cf.row_count_delta },
+    { Metric: 'Row Delta %',    Value: cf.row_count_delta_pct },
+    { Metric: 'Narrative',      Value: data.narrative },
+  ]
+
+  const fileSheets: PanelSheet[] = Object.entries(data.metrics.files).map(([key, f]) => {
+    const label = FILE_LABELS[key] ?? key
+    const rows: Record<string, unknown>[] = [
+      { Category: 'Overview', Column: 'Row Count',       Value: f.row_count },
+      { Category: 'Overview', Column: 'Duplicate Rows',  Value: f.duplicate_row_count },
+      ...Object.entries(f.null_counts).map(([col, count]) => ({
+        Category: 'Null Count',
+        Column: col,
+        Count: count,
+        'Null %': f.null_percentages[col] ?? 0,
+      })),
+      ...Object.entries(f.numeric_distributions).map(([col, d]) => ({
+        Category: 'Numeric Distribution',
+        Column: col,
+        Min: d.min,
+        Max: d.max,
+        Mean: d.mean,
+        Median: d.median,
+        'Std Dev': d.std,
+        Sum: d.sum,
+      })),
+      ...Object.entries(f.date_ranges).map(([col, dr]) => ({
+        Category: 'Date Range',
+        Column: col,
+        'Min Date': dr.min,
+        'Max Date': dr.max,
+      })),
+      ...Object.entries(f.entity_distribution).map(([entity, count]) => ({
+        Category: 'Entity Distribution',
+        Column: entity,
+        Count: count,
+      })),
+    ]
+    return { id: key, label, name: label.slice(0, 31), rows }
+  })
+
+  return [
+    { id: 'summary', label: 'Cross-File Summary', name: 'Summary', rows: summaryRows },
+    ...fileSheets,
+  ]
+}
+
+function UploadConfirmation({ sessionId }: { sessionId: string }) {
+  const raw = sessionStorage.getItem(`upload_result_${sessionId}`)
+  if (!raw) return null
+
+  const result = JSON.parse(raw) as {
+    row_counts: Record<string, number>
+    validation: Record<string, { is_valid: boolean; columns_validated: string[] }>
+  }
+
+  return (
+    <div className="bg-green-50 border border-green-200 rounded-md p-4 mb-5">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-green-600 font-semibold text-sm">✓ Files loaded successfully</span>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {Object.entries(result.row_counts).map(([key, count]) => {
+          const isValid = result.validation[key]?.is_valid ?? true
+          return (
+            <div key={key} className="bg-white rounded border border-green-100 p-3">
+              <p className="text-xs text-gray-500">{FILE_LABELS[key] ?? key}</p>
+              <p className="text-xl font-bold text-gray-900 mt-0.5">{count.toLocaleString()}</p>
+              <p className="text-xs text-gray-400">rows</p>
+              {!isValid && (
+                <p className="text-xs text-red-500 mt-1">Validation issues</p>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -160,11 +262,38 @@ function ProfileResult({ data }: { data: ProfilingResponse }) {
 export default function ProfileStep({ sessionId, onSuccess }: Props) {
   const mutation = useMutation({
     mutationFn: () => runProfile(sessionId),
-    onSuccess,
+    onSuccess: (data) => {
+      const key = `profile_result_${sessionId}`
+      try {
+        sessionStorage.setItem(key, JSON.stringify(data))
+      } catch {
+        try {
+          // Slim: strip per-file distribution maps (can be large with many unique values)
+          const slim = {
+            ...data,
+            metrics: {
+              ...data.metrics,
+              files: Object.fromEntries(
+                Object.entries(data.metrics.files).map(([k, v]) => [
+                  k,
+                  { ...v, entity_distribution: {}, numeric_distributions: {}, date_ranges: {} },
+                ]),
+              ),
+            },
+          }
+          sessionStorage.setItem(key, JSON.stringify(slim))
+        } catch {
+          // Skip caching — preprocess step shows fallback message
+        }
+      }
+      onSuccess()
+    },
   })
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <UploadConfirmation sessionId={sessionId} />
+
       <h2 className="text-base font-semibold text-gray-900 mb-1">Profile Data</h2>
       <p className="text-sm text-gray-500 mb-5">
         Analyze the uploaded files — row counts, nulls, duplicates, distributions.
@@ -184,7 +313,7 @@ export default function ProfileStep({ sessionId, onSuccess }: Props) {
         {mutation.isPending ? 'Profiling…' : 'Run Profile'}
       </button>
 
-      {mutation.data && <ProfileResult data={mutation.data} />}
+      {mutation.data && <ProfileResult data={mutation.data} sessionId={sessionId} />}
     </div>
   )
 }

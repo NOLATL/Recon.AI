@@ -66,6 +66,56 @@ def _build_metrics_schema(result) -> ProfilingMetrics:
     )
 
 
+@router.get("/{session_id}/profile", response_model=ProfilingResponse)
+def get_profile(session_id: str):
+    """
+    Return stored profiling metrics for a session that is already in 'profiled' state
+    (or any later state). Use this to pull profile data for display without re-running.
+    """
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+    if current.value not in ("profiled", "preprocessed", "deterministic_complete",
+                            "deterministic_review_complete", "probabilistic_complete",
+                            "probabilistic_review_complete", "ai_suggested", "ai_review_complete",
+                            "final_consolidated", "finalized"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Profiling data is only available after the session has been profiled. "
+                f"Current state is '{current.value}'."
+            ),
+        )
+
+    runtime = rm.get_runtime(session_id)
+    profiling_data = runtime.get("profiling", {})
+    if not profiling_data or "metrics" not in profiling_data:
+        raise HTTPException(
+            status_code=404,
+            detail="No profiling data found for this session.",
+        )
+
+    metrics_dict = profiling_data["metrics"]
+    narrative = profiling_data.get("narrative", "")
+
+    # Rebuild Pydantic schema from stored dict so response shape matches POST
+    metrics = ProfilingMetrics(**metrics_dict)
+    snapshots = rm.get_session_snapshots(session_id)
+    latest = snapshots[-1] if snapshots else {}
+
+    return ProfilingResponse(
+        session_id=session_id,
+        state=current.value,
+        metrics=metrics,
+        narrative=narrative,
+        snapshot=SnapshotInfo(
+            key=latest.get("pre_transition_state", ""),
+            integrity_hash=latest.get("integrity_hash", ""),
+        ),
+    )
+
+
 @router.post("/{session_id}/profile", response_model=ProfilingResponse)
 def run_profile(session_id: str):
     """

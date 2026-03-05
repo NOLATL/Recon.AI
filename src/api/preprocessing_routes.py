@@ -38,6 +38,63 @@ from src.services.vendor_normalization import run_normalization
 router = APIRouter(prefix="/reconciliation", tags=["preprocessing"])
 
 
+@router.get("/{session_id}/preprocess", response_model=PreprocessingResponse)
+def get_preprocess(session_id: str):
+    """
+    Return stored preprocessing results for a session that is already preprocessed
+    (or further along the pipeline).  Allows the frontend to reload the vendor
+    normalization map after a page refresh without re-running preprocessing.
+
+    Returns 409 if the session has not yet been preprocessed.
+    """
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+
+    # Any state before PREPROCESSED means we have no stored data yet
+    pre_states = {
+        ReconciliationState.INITIALIZED,
+        ReconciliationState.FILES_LOADED,
+        ReconciliationState.PROFILED,
+    }
+    if current in pre_states:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Preprocessing results are not yet available. "
+                f"Current state is '{current.value}'."
+            ),
+        )
+
+    runtime = rm.get_runtime(session_id)
+    norm_map_raw   = runtime.get("vendor_normalization_map", []) or []
+    preprocessing  = runtime.get("preprocessing", {}) or {}
+    snapshots      = rm.get_session_snapshots(session_id)
+    latest         = snapshots[-1] if snapshots else {}
+
+    return PreprocessingResponse(
+        session_id=session_id,
+        state=current.value,
+        normalization_summary=NormalizationSummary(
+            total_unique_gl_vendors=preprocessing.get("total_gl_vendors", len(norm_map_raw)),
+            tier1_count=            preprocessing.get("tier1_count",  0),
+            tier2_count=            preprocessing.get("tier2_count",  0),
+            tier3_count=            preprocessing.get("tier3_count",  0),
+            threshold_used=         preprocessing.get("threshold_used", 0.9),
+            alias_version=          preprocessing.get("alias_version", "v1.0.0"),
+        ),
+        vendor_normalization_map=[
+            NormalizationEntrySchema(**e) if isinstance(e, dict) else e
+            for e in norm_map_raw
+        ],
+        snapshot=SnapshotInfo(
+            key=            latest.get("pre_transition_state", ""),
+            integrity_hash= latest.get("integrity_hash", ""),
+        ),
+    )
+
+
 @router.post("/{session_id}/preprocess", response_model=PreprocessingResponse)
 def run_preprocess(session_id: str):
     """

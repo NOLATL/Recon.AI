@@ -57,6 +57,41 @@ from typing import Dict, List, Optional
 import pandas as pd
 from rapidfuzz import fuzz, process
 
+# ---------------------------------------------------------------------------
+# Tier 3 — AI constants
+# ---------------------------------------------------------------------------
+
+_AI_SYSTEM_PROMPT = (
+    "You are a financial data reconciliation assistant.\n\n"
+    "Your task is to find the single best matching subledger vendor for a given GL vendor name.\n\n"
+    "Use common business knowledge, abbreviations, and vendor naming conventions.\n\n"
+    "Examples of valid matches:\n"
+    "  AWS → Amazon Web Services\n"
+    "  Amazon Web Srvcs → Amazon Web Services\n"
+    "  HD Supply → Home Depot Supply\n"
+    "  WMT → Walmart\n\n"
+    "Return ONLY valid JSON with no markdown, no code fences."
+)
+
+
+def _ai_batch_user_prompt(gl_vendor: str, sub_vendors: List[str]) -> str:
+    vendors_list = "\n".join(f"- {v}" for v in sub_vendors)
+    return (
+        f"Find the best matching subledger vendor for this GL vendor name.\n\n"
+        f"GL Vendor: {gl_vendor}\n\n"
+        f"Subledger Vendors:\n{vendors_list}\n\n"
+        'Return JSON: {"matched_vendor": "exact string from list or null", "confidence": 0.0, "reason": "one sentence"}\n\n'
+        "Rules:\n"
+        "* matched_vendor must be an exact string copied verbatim from the list above, or null\n"
+        "* confidence must be between 0 and 1\n"
+        "* if no good match exists, set matched_vendor to null and confidence to 0\n"
+        "* output ONLY JSON"
+    )
+
+
+# Minimum AI confidence to treat a match as valid
+_AI_MATCH_THRESHOLD = 0.70
+
 
 # ---------------------------------------------------------------------------
 # Normalization constants
@@ -116,14 +151,16 @@ class NormalizationEntry:
 @dataclass
 class NormalizationResult:
     """Full output of run_normalization()."""
-    entries:        List[NormalizationEntry]
-    gl_df:          pd.DataFrame    # GL with Vendor_Normalized column added
-    sub_df:         pd.DataFrame    # Subledger with Vendor_Normalized column added
-    tier1_count:    int
-    tier2_count:    int
-    tier3_count:    int
-    threshold_used: float
-    alias_version:  str
+    entries:                  List[NormalizationEntry]
+    gl_df:                    pd.DataFrame    # GL with Vendor_Normalized column added
+    sub_df:                   pd.DataFrame    # Subledger with Vendor_Normalized column added
+    tier1_count:              int
+    tier2_count:              int
+    tier3_count:              int
+    threshold_used:           float
+    alias_version:            str
+    unmatched_sub_vendors:    List[str]           # Sub vendors not matched by any GL entry
+    unmatched_sub_normalized: Dict[str, str]      # original → normalized for unmatched subs
 
     def to_map_list(self) -> List[dict]:
         return [e.to_dict() for e in self.entries]
@@ -288,16 +325,59 @@ def run_normalization(
     else:
         tier3_candidates = tier2_candidates
 
-    # --- Tier 3: AI residual stub ---
+    # --- Tier 3: AI vendor resolution ---
+    # Attempt to resolve remaining unmatched GL vendors via OpenAI.
+    # For each tier-3 GL vendor, compare against every Sub vendor and take the
+    # highest-confidence match that meets _AI_MATCH_THRESHOLD.
+    # Degrades silently if OPENAI_API_KEY is not set or a call fails.
+    ai_client = None
+    if tier3_candidates:
+        try:
+            from src.llm.openai_client import OpenAIClient
+            ai_client = OpenAIClient()
+        except Exception:
+            pass  # No API key or import error — fall back to unmatched
+
     for orig in tier3_candidates:
-        entries.append(NormalizationEntry(
-            original_vendor=    orig,
-            normalized_vendor=  gl_norm[orig],
-            matched_to=         None,
-            match_source=       "ai",
-            similarity_score=   None,
-            ai_confidence_score=None,   # placeholder — no AI call yet
-        ))
+        best_sub:        Optional[str] = None
+        best_normalized: Optional[str] = None
+        best_confidence: float         = 0.0
+
+        if ai_client is not None and sub_unique:
+            try:
+                result     = ai_client.generate_json(
+                    _AI_SYSTEM_PROMPT,
+                    _ai_batch_user_prompt(orig, sub_unique),
+                )
+                matched    = result.get("matched_vendor")
+                confidence = float(result.get("confidence", 0))
+                # Accept only if the returned string is an exact member of sub_unique
+                if matched and matched in sub_unique and confidence >= _AI_MATCH_THRESHOLD:
+                    best_confidence = confidence
+                    best_normalized = str(matched)
+                    best_sub        = matched
+            except Exception:
+                pass  # malformed JSON or API error — record as unmatched
+
+        if best_sub is not None:
+            entries.append(NormalizationEntry(
+                original_vendor=    orig,
+                normalized_vendor=  best_normalized,
+                matched_to=         best_sub,
+                match_source=       "ai",
+                similarity_score=   None,
+                ai_confidence_score=best_confidence,
+            ))
+        else:
+            # No confident AI match — record as unmatched with zero confidence
+            entries.append(NormalizationEntry(
+                original_vendor=    orig,
+                normalized_vendor=  gl_norm[orig],
+                matched_to=         None,
+                match_source=       "ai",
+                similarity_score=   None,
+                ai_confidence_score=0.0,
+            ))
 
     # -----------------------------------------------------------------------
     # Tier counts
@@ -337,13 +417,21 @@ def run_normalization(
         if pd.notna(v) else None
     )
 
+    # Subledger vendors not claimed by any GL entry
+    matched_subs = {e.matched_to for e in entries if e.matched_to is not None}
+    unmatched_sub_vendors = [v for v in sub_unique if v not in matched_subs]
+    unmatched_sub_normalized = {v: sub_norm.get(v, normalize_vendor(v, alias_map))
+                                 for v in unmatched_sub_vendors}
+
     return NormalizationResult(
-        entries=        entries,
-        gl_df=          gl_out,
-        sub_df=         sub_out,
-        tier1_count=    tier1_count,
-        tier2_count=    tier2_count,
-        tier3_count=    tier3_count,
-        threshold_used= nlp_threshold,
-        alias_version=  alias_version,
+        entries=                  entries,
+        gl_df=                    gl_out,
+        sub_df=                   sub_out,
+        tier1_count=              tier1_count,
+        tier2_count=              tier2_count,
+        tier3_count=              tier3_count,
+        threshold_used=           nlp_threshold,
+        alias_version=            alias_version,
+        unmatched_sub_vendors=    unmatched_sub_vendors,
+        unmatched_sub_normalized= unmatched_sub_normalized,
     )

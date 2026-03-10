@@ -46,6 +46,7 @@ def _build_metrics_schema(result) -> ProfilingMetrics:
         files_out[key] = FileProfilingSummary(
             file_key=fr.file_key,
             row_count=fr.row_count,
+            unique_vendor_count=fr.unique_vendor_count,
             null_counts=fr.null_counts,
             null_percentages=fr.null_percentages,
             duplicate_row_count=fr.duplicate_row_count,
@@ -58,6 +59,7 @@ def _build_metrics_schema(result) -> ProfilingMetrics:
                 for col, dr in fr.date_ranges.items()
             },
             entity_distribution=fr.entity_distribution,
+            column_profiles=fr.column_profiles,
         )
 
     return ProfilingMetrics(

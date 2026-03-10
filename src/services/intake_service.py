@@ -24,9 +24,13 @@ from src.exceptions import FileValidationError
 
 
 REQUIRED_FILES: Dict[str, str] = {
+    "gl":        "GL.csv",
+    "subledger": "Subledger.csv",
+}
+
+# Optional files — validated if provided, skipped if absent
+OPTIONAL_FILES: Dict[str, str] = {
     "chart_of_accounts": "Chart_of_Accounts.csv",
-    "gl":                "GL.csv",
-    "subledger":         "Subledger.csv",
 }
 
 
@@ -75,17 +79,22 @@ def validate_and_load(files: Dict[str, UploadFile]) -> IntakeResult:
                               carries structured per-file error data
         ValueError          — a required file key is missing from `files`
     """
-    # Step 1: presence check
+    # Step 1: presence check for required files
     for key, expected_name in REQUIRED_FILES.items():
         if key not in files:
             raise ValueError(f"Missing required file: '{expected_name}' (key: '{key}')")
 
-    # Steps 2–4: parse and validate each file
+    # Steps 2–4: parse and validate each file (required + any provided optional files)
+    files_to_process = {**REQUIRED_FILES}
+    for key, expected_name in OPTIONAL_FILES.items():
+        if key in files:
+            files_to_process[key] = expected_name
+
     dataframes: Dict[str, Optional[pd.DataFrame]] = {}
     results: Dict[str, FileValidationResult] = {}
     errors: list = []
 
-    for key, expected_name in REQUIRED_FILES.items():
+    for key, expected_name in files_to_process.items():
         upload: UploadFile = files[key]
 
         # Filename contract — exact match required

@@ -20,13 +20,13 @@ Tests every explicit requirement:
   - residual_pool has "gl" and "subledger" keys
 
   [Known result — standard test data]
-  GL:  "Vendor A LLC"    ($100.00, 2024-01-15, US_CORP) → scenario 1 match w/ SUB001
-       "Unique Vendor XYZ" ($250.50, 2024-02-20, US_CORP) → scenario 3 match w/ SUB002
-  Sub: "Vendor A"        ($100.00, 2024-01-15, US_CORP)
-       "Other Sub"       ($250.50, 2024-02-20, US_CORP)
+  GL:  "Vendor A LLC" ($100.00, 2024-01-15, US_CORP) → scenario 1 match w/ SUB001
+       "Vendor B"     ($250.50, 2024-01-15, US_CORP) → scenario 3 match w/ SUB002
+  Sub: "Vendor A"    ($100.00, 2024-01-15, US_CORP)
+       "Vendor B"    ($250.50, 2024-02-20, US_CORP)
   After preprocessing, Vendor_Normalized values allow:
     scenario 1: GL001 ↔ SUB001 (exact vendor/amount/date/entity)
-    scenario 3: GL002 ↔ SUB002 (same amount + entity, date diff = 0 ≤ 60)
+    scenario 3: GL002 ↔ SUB002 (vendor+amount+entity match, 36-day gap ≤ 60)
   Expected: 2 matches, 0 residual GL, 0 residual Sub
 
   - GL001 matched in scenario 1
@@ -80,25 +80,25 @@ def _make_csv(rows: Dict[str, List[Any]]) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Standard test data (same as Phase 3 tests)
+# Standard test data
 #
 # After Phase 3 vendor normalisation:
-#   GL "Vendor A LLC"       → Vendor_Normalized = "vendor a"   (tier-1 match)
-#   GL "Unique Vendor XYZ"  → Vendor_Normalized = "unique vendor xyz" (tier-3)
-#   Sub "Vendor A"          → Vendor_Normalized = "vendor a"
-#   Sub "Other Sub"         → Vendor_Normalized = "other sub"
+#   GL "Vendor A LLC" → Vendor_Normalized = "vendor a"   (tier-1 match)
+#   GL "Vendor B"     → Vendor_Normalized = "vendor b"
+#   Sub "Vendor A"    → Vendor_Normalized = "vendor a"
+#   Sub "Vendor B"    → Vendor_Normalized = "vendor b"
 #
 # Deterministic matching:
-#   Scenario 1: GL001 (vendor a, 100.00, 2024-01-15, US_CORP) ↔ SUB001
-#   Scenario 3: GL002 (250.50, US_CORP, 2024-02-20) ↔ SUB002
+#   Scenario 1: GL001 (vendor a, 100.00, 2024-01-15, US_CORP) ↔ SUB001 (exact)
+#   Scenario 3: GL002 (vendor b, 250.50, 2024-01-15, US_CORP) ↔ SUB002 (36-day gap ≤ 60)
 # ---------------------------------------------------------------------------
 
 _GL = {
     "gl_id":            ["GL001", "GL002"],
     "entity":           ["US_CORP", "US_CORP"],
     "account_code":     ["ACCT_100", "ACCT_101"],
-    "vendor_name":      ["Vendor A LLC", "Unique Vendor XYZ"],
-    "transaction_date": ["2024-01-15", "2024-02-20"],
+    "vendor_name":      ["Vendor A LLC", "Vendor B"],
+    "transaction_date": ["2024-01-15", "2024-01-15"],
     "amount":           ["100.00", "250.50"],
     "currency":         ["USD", "USD"],
     "exception_flag":   ["False", "True"],
@@ -107,7 +107,7 @@ _GL = {
 _SUB = {
     "subledger_id":     ["SUB001", "SUB002"],
     "entity":           ["US_CORP", "US_CORP"],
-    "vendor_name":      ["Vendor A", "Other Sub"],
+    "vendor_name":      ["Vendor A", "Vendor B"],
     "transaction_date": ["2024-01-15", "2024-02-20"],
     "amount":           ["100.00", "250.50"],
     "currency":         ["USD", "USD"],

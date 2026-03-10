@@ -15,14 +15,14 @@ Flow:
   6. Advance state to PREPROCESSED (snapshot fires automatically inside transition)
   7. Return PreprocessingResponse
 
-Architecture notes:
-- All three write calls happen BEFORE advance_state() so the snapshot that fires
-  inside StateManager.transition() captures clean datasets + mapping + metadata.
-- No direct dict mutation — all writes through controlled rm.write_*() functions.
-- No recomputation: once PREPROCESSED, endpoint rejects further calls with a
-  distinct error message.
+Apply vendor overrides:
+  POST /{session_id}/preprocess/vendor_overrides — apply manual overrides to
+  Vendor_Normalized in clean_data. Keys: original GL vendor_name for GL rows;
+  "__sub__" + subledger vendor_name for Sub rows. Used for matching and output;
+  vendor_name (original) is preserved for display.
 """
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException
 
 import src.core.runtime_manager as rm
@@ -31,6 +31,7 @@ from src.schemas.preprocessing import (
     NormalizationEntrySchema,
     NormalizationSummary,
     PreprocessingResponse,
+    VendorOverridesRequest,
 )
 from src.schemas.intake import SnapshotInfo
 from src.services.vendor_normalization import run_normalization
@@ -88,6 +89,8 @@ def get_preprocess(session_id: str):
             NormalizationEntrySchema(**e) if isinstance(e, dict) else e
             for e in norm_map_raw
         ],
+        unmatched_sub_vendors=preprocessing.get("unmatched_sub_vendors", []),
+        unmatched_sub_normalized=preprocessing.get("unmatched_sub_normalized", {}),
         snapshot=SnapshotInfo(
             key=            latest.get("pre_transition_state", ""),
             integrity_hash= latest.get("integrity_hash", ""),
@@ -161,12 +164,14 @@ def run_preprocess(session_id: str):
     })
 
     rm.write_preprocessing(session_id, {
-        "threshold_used":       result.threshold_used,
-        "alias_version":        result.alias_version,
-        "tier1_count":          result.tier1_count,
-        "tier2_count":          result.tier2_count,
-        "tier3_count":          result.tier3_count,
-        "total_gl_vendors":     len(result.entries),
+        "threshold_used":           result.threshold_used,
+        "alias_version":            result.alias_version,
+        "tier1_count":              result.tier1_count,
+        "tier2_count":              result.tier2_count,
+        "tier3_count":              result.tier3_count,
+        "total_gl_vendors":         len(result.entries),
+        "unmatched_sub_vendors":    result.unmatched_sub_vendors,
+        "unmatched_sub_normalized": result.unmatched_sub_normalized,
     })
 
     # --- Advance state (snapshot fires automatically) ---
@@ -197,8 +202,110 @@ def run_preprocess(session_id: str):
         vendor_normalization_map=[
             NormalizationEntrySchema(**e.to_dict()) for e in result.entries
         ],
+        unmatched_sub_vendors=result.unmatched_sub_vendors,
+        unmatched_sub_normalized=result.unmatched_sub_normalized,
         snapshot=SnapshotInfo(
             key=             latest.get("pre_transition_state", ""),
             integrity_hash=  latest.get("integrity_hash", ""),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Apply vendor overrides (manual edits from Vendor Preprocessing UI)
+# ---------------------------------------------------------------------------
+
+_SUB_PREFIX = "__sub__"
+
+
+def _apply_vendor_overrides(clean_data: dict, overrides: dict) -> None:
+    """
+    Apply manual vendor overrides to Vendor_Normalized in clean_data.
+    - GL: key = original vendor_name (from vendor_normalization_map)
+    - Sub: key = "__sub__" + subledger vendor_name
+    Override values become the final Vendor_Normalized for matching and output.
+    Empty overrides are ignored (keep existing). vendor_name is unchanged (display).
+    """
+    if not overrides:
+        return
+
+    gl_df = clean_data.get("gl")
+    sub_df = clean_data.get("subledger")
+
+    if gl_df is not None and not gl_df.empty and "vendor_name" in gl_df.columns and "Vendor_Normalized" in gl_df.columns:
+        def gl_override(row):
+            v = row["vendor_name"]
+            if pd.isna(v):
+                return row["Vendor_Normalized"]
+            sv = str(v)
+            if sv in overrides:
+                override_val = overrides[sv]
+                if override_val is not None and str(override_val).strip():
+                    return str(override_val).strip()
+            return row["Vendor_Normalized"]
+
+        gl_df["Vendor_Normalized"] = gl_df.apply(gl_override, axis=1)
+
+    if sub_df is not None and not sub_df.empty and "vendor_name" in sub_df.columns and "Vendor_Normalized" in sub_df.columns:
+        def sub_override(row):
+            v = row["vendor_name"]
+            if pd.isna(v):
+                return row["Vendor_Normalized"]
+            key = _SUB_PREFIX + str(v)
+            if key in overrides:
+                override_val = overrides[key]
+                if override_val is not None and str(override_val).strip():
+                    return str(override_val).strip()
+            return row["Vendor_Normalized"]
+
+        sub_df["Vendor_Normalized"] = sub_df.apply(sub_override, axis=1)
+
+
+@router.post("/{session_id}/preprocess/vendor_overrides")
+def apply_vendor_overrides(session_id: str, body: VendorOverridesRequest):
+    """
+    Apply manual vendor overrides to clean_data.Vendor_Normalized.
+
+    Body: { "vendor_overrides": { "GL Vendor LLC": "override name", "__sub__Sub Vendor": "override" } }
+
+    Requires state >= preprocessed (clean_data must exist).
+    Overrides become the final preprocessed name for matching and output.
+    Original vendor_name is preserved for display throughout the app.
+    """
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+    if current.value not in (
+        "preprocessed",
+        "deterministic_complete",
+        "deterministic_review_complete",
+        "probabilistic_complete",
+        "probabilistic_review_complete",
+        "ai_suggested",
+        "ai_review_complete",
+        "final_consolidated",
+        "finalized",
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Vendor overrides require session to be preprocessed or later. "
+                f"Current state is '{current.value}'."
+            ),
+        )
+
+    overrides = body.vendor_overrides or {}
+    if not overrides:
+        return {"status": "ok", "applied_count": 0}
+
+    runtime = rm.get_runtime(session_id)
+    clean_data = runtime.get("clean_data")
+    if not clean_data:
+        raise HTTPException(
+            status_code=409,
+            detail="clean_data not available. Run preprocessing first.",
+        )
+
+    _apply_vendor_overrides(clean_data, overrides)
+    return {"status": "ok", "applied_count": len(overrides)}

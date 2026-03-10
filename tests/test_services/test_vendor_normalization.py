@@ -331,11 +331,12 @@ class TestTier3:
         result = run_normalization(gl, sub)
         assert result.entries[0].similarity_score is None
 
-    def test_tier3_ai_confidence_is_none(self):
+    def test_tier3_ai_confidence_is_zero_or_none_when_no_key(self):
         gl  = _gl(["Alpha Dynamics"])
         sub = _sub([])
         result = run_normalization(gl, sub)
-        assert result.entries[0].ai_confidence_score is None
+        # Without OPENAI_API_KEY the AI client is skipped; confidence is 0.0 (no match)
+        assert result.entries[0].ai_confidence_score in (None, 0.0)
 
     def test_tier3_matched_to_is_none(self):
         gl  = _gl(["Alpha Dynamics"])

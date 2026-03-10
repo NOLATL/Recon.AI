@@ -15,6 +15,9 @@ Architecture notes:
 - FileValidationError carries structured data; serialized directly into 422 response
 """
 
+from typing import Optional
+
+import pandas as pd
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 import src.core.runtime_manager as rm
@@ -29,9 +32,9 @@ router = APIRouter(prefix="/reconciliation", tags=["intake"])
 @router.post("/{session_id}/upload", response_model=UploadSuccessResponse)
 async def upload_files(
     session_id: str,
-    chart_of_accounts: UploadFile = File(...),
     gl: UploadFile = File(...),
     subledger: UploadFile = File(...),
+    chart_of_accounts: Optional[UploadFile] = File(None),
 ):
     """
     Accept Chart_of_Accounts.csv, GL.csv, Subledger.csv and advance the session
@@ -55,22 +58,28 @@ async def upload_files(
             ),
         )
 
-    # --- Validate all three files (strict, exhaustive) ---
+    # --- Validate uploaded files (CoA is optional) ---
+    files_dict = {"gl": gl, "subledger": subledger}
+    if chart_of_accounts is not None:
+        files_dict["chart_of_accounts"] = chart_of_accounts
+
     try:
-        intake = validate_and_load({
-            "chart_of_accounts": chart_of_accounts,
-            "gl": gl,
-            "subledger": subledger,
-        })
+        intake = validate_and_load(files_dict)
     except FileValidationError as exc:
-        # Return all per-file, per-column errors — do not advance state
         raise HTTPException(status_code=422, detail=exc.to_detail())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    # --- Write validated DataFrames via controlled runtime write functions ---
+    # --- Write validated DataFrames ---
     for key, df in intake.dataframes.items():
         rm.write_raw_data(session_id, key, df)
+
+    # If CoA was not provided, store an empty DataFrame with the correct schema
+    if chart_of_accounts is None:
+        empty_coa = pd.DataFrame(columns=[
+            "account_code", "account_name", "account_type", "materiality_threshold"
+        ])
+        rm.write_raw_data(session_id, "chart_of_accounts", empty_coa)
 
     # --- Advance state (snapshot fires automatically inside StateManager.transition) ---
     # The snapshot captures: raw_data structure, config, matching buckets, etc.

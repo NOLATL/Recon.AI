@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Upload,
@@ -7,10 +7,12 @@ import {
   FileSearch,
   Menu,
   X,
+  RotateCcw,
 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { RECON_SESSION_ID_KEY } from '@/api/endpoints'
 
 const navItems = [
   { to: '/', label: 'Landing', icon: LayoutDashboard },
@@ -22,6 +24,13 @@ const navItems = [
 
 export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const navigate = useNavigate()
+
+  const handleResetSession = () => {
+    localStorage.removeItem(RECON_SESSION_ID_KEY)
+    navigate('/load-files')
+    mobileOpen && setMobileOpen(false)
+  }
 
   const navContent = (
     <nav className="flex flex-col gap-1 p-4">
@@ -49,6 +58,17 @@ export function Sidebar() {
           {label}
         </NavLink>
       ))}
+      <div className="mt-4 border-t border-sidebar-border pt-4">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-3 text-sidebar-foreground hover:bg-sidebar-accent/50"
+          onClick={handleResetSession}
+        >
+          <RotateCcw className="size-4 shrink-0" aria-hidden />
+          Reset Session
+        </Button>
+      </div>
     </nav>
   )
 

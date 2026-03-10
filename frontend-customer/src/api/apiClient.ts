@@ -1,7 +1,12 @@
 // src/api/apiClient.ts
 
+// In dev, use "" so requests hit same origin → Vite proxies to backend. Avoids
+// CORS and mixed-content (HTTPS page blocking http://localhost) when preview uses HTTPS.
+// Production builds use VITE_API_BASE_URL or fallback.
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
+  import.meta.env.DEV
+    ? ""
+    : (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000")
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
 
@@ -28,17 +33,22 @@ async function parseJsonSafe(res: Response): Promise<unknown | undefined> {
 /**
  * Fetch with a timeout. Aborts the request after timeoutMs so the UI doesn't hang.
  * Uses AbortController so the request is cancelled and doesn't hang.
+ * Composes with caller's signal if provided — either can abort the request.
  */
 export function fetchWithTimeout(
   url: string,
   init: RequestInit & { timeoutMs?: number }
 ): Promise<Response> {
-  const { timeoutMs, ...fetchInit } = init
+  const { timeoutMs, signal: callerSignal, ...fetchInit } = init
   if (timeoutMs == null || timeoutMs <= 0) {
     return fetch(url, fetchInit)
   }
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  // If caller passed a signal, abort our controller when they abort
+  if (callerSignal) {
+    callerSignal.addEventListener('abort', () => controller.abort())
+  }
   return fetch(url, { ...fetchInit, signal: controller.signal }).finally(() =>
     clearTimeout(timeoutId)
   )

@@ -24,6 +24,10 @@ class SessionStatusResponse(BaseModel):
     matching_summary: Dict[str, int] = Field(
         description="Record count per matching bucket: deterministic, probabilistic, ai_suggested, final, rejected"
     )
+    matching_amount_summary: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Total GL amount per matching bucket (same keys as matching_summary)",
+    )
 
 
 class SessionListResponse(BaseModel):

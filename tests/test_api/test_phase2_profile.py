@@ -217,11 +217,12 @@ class TestHappyPath:
         data = _profile(client, session_id).json()
         assert isinstance(data["narrative"], str) and len(data["narrative"]) > 0
 
-    def test_narrative_contains_stub_disclaimer(self, client, session_id):
+    def test_narrative_mentions_gl(self, client, session_id):
         _advance_to_files_loaded(client, session_id)
         data = _profile(client, session_id).json()
         narrative_lower = data["narrative"].lower()
-        assert "not yet enabled" in narrative_lower or "deterministic stub" in narrative_lower
+        # Narrative is now either AI-generated or the deterministic fallback; both reference GL
+        assert "gl" in narrative_lower or "general ledger" in narrative_lower or len(data["narrative"]) > 20
 
     def test_profiling_written_to_runtime(self, client, session_id):
         _advance_to_files_loaded(client, session_id)

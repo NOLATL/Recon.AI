@@ -8,23 +8,21 @@ Tests every explicit requirement:
   - Match has scenario_id=1, confidence_score=1.0, grouping_type="one_to_one"
   - Matched records are removed from residual
 
-  [Scenario 2 — Vendor + Amount + Date tolerance]
-  - Match on Vendor_Normalized + amount with date within 60 days
-  - Date exactly 60 days apart → match (boundary inclusive)
-  - Date 61 days apart → no match
+  [Scenario 2 — Vendor + Amount + Entity + Date tolerance ≤30 days]
+  - Match on Vendor_Normalized + amount + entity with date within 30 days
+  - Date exactly 30 days apart → match (boundary inclusive)
+  - Date 31 days apart → no S2 match (falls through to S3)
+  - Entity mismatch → no match
   - Match has scenario_id=2, confidence_score=0.95
   - Records not consumed by scenario 1 are available for scenario 2
 
-  [Scenario 3 — Amount + Entity + Date tolerance]
-  - Match on amount + entity with date within 60 days
-  - Match has scenario_id=3, confidence_score=0.85
+  [Scenario 3 — Vendor + Amount + Entity + Date tolerance ≤60 days]
+  - Match on Vendor_Normalized + amount + entity with date 31–60 days apart
+  - Date exactly 60 days apart → match (boundary inclusive)
+  - Date 61 days apart → no match
+  - Vendor mismatch → no match
+  - Match has scenario_id=3, confidence_score=0.90
   - Records not consumed by scenarios 1–2 are available for scenario 3
-
-  [Scenario 4 — Deterministic grouping]
-  - N:1: two GL rows summing to one Sub amount → match with grouping_type="many_to_one"
-  - 1:N: one GL row whose amount equals sum of two Sub rows → grouping_type="one_to_many"
-  - Match has scenario_id=4, confidence_score=0.75
-  - Records consumed in N:1 are not reused in 1:N
 
   [Ordered execution / pool removal]
   - A record matched in scenario 1 is NOT in the residual pool
@@ -38,7 +36,7 @@ Tests every explicit requirement:
 
   [Result shape]
   - Each MatchRecord has all required fields
-  - scenario_counts keys are {1, 2, 3, 4}
+  - scenario_counts keys are {1, 2, 3}
   - total_gl / total_sub equal input lengths
   - matched_gl + len(residual_gl) == total_gl
 """
@@ -47,7 +45,8 @@ import pandas as pd
 import pytest
 
 from src.services.deterministic_matching import (
-    DATE_TOLERANCE_DAYS,
+    DATE_TOLERANCE_NARROW,
+    DATE_TOLERANCE_WIDE,
     DeterministicResult,
     MatchRecord,
     run_deterministic_matching,
@@ -110,7 +109,7 @@ def _run(gl_rows, sub_rows) -> DeterministicResult:
 
 def _matches_by_scenario(result: DeterministicResult) -> dict:
     """Group matches by scenario_id for easy assertion."""
-    groups: dict = {1: [], 2: [], 3: [], 4: []}
+    groups: dict = {1: [], 2: [], 3: []}
     for m in result.matches:
         groups[m.scenario_id].append(m)
     return groups
@@ -196,67 +195,75 @@ class TestScenario1:
 
 
 # ===========================================================================
-# Scenario 2 — Vendor + Amount + Date tolerance ±60 days
+# Scenario 2 — Vendor + Amount + Entity + Date tolerance ≤30 days (conf 0.95)
 # ===========================================================================
 
 class TestScenario2:
     """
-    Use matching vendor/amount but different date to avoid scenario 1;
-    different entity to avoid scenario 3.
+    Use matching vendor/amount/entity but a date gap of 1–30 days to avoid S1
+    while landing in S2 (narrow band).
     """
 
-    def test_date_within_tolerance_produces_match(self):
-        gl  = [_gl_row(date="2024-01-15", entity="A")]
-        sub = [_sub_row(date="2024-02-20", entity="B")]   # 36 days diff, diff entity
+    def test_date_within_narrow_tolerance_produces_match(self):
+        """15-day gap — well within S2's ≤30 day band."""
+        gl  = [_gl_row(date="2024-01-15")]
+        sub = [_sub_row(date="2024-01-30")]   # 15 days diff, same entity
         result = _run(gl, sub)
         s2 = _matches_by_scenario(result)[2]
         assert len(s2) == 1
 
     def test_scenario_id_is_2(self):
-        gl  = [_gl_row(date="2024-01-15", entity="A")]
-        sub = [_sub_row(date="2024-02-20", entity="B")]
+        gl  = [_gl_row(date="2024-01-15")]
+        sub = [_sub_row(date="2024-01-30")]
         result = _run(gl, sub)
         assert _matches_by_scenario(result)[2][0].scenario_id == 2
 
     def test_confidence_score_is_0_95(self):
-        gl  = [_gl_row(date="2024-01-15", entity="A")]
-        sub = [_sub_row(date="2024-02-20", entity="B")]
+        gl  = [_gl_row(date="2024-01-15")]
+        sub = [_sub_row(date="2024-01-30")]
         result = _run(gl, sub)
         assert _matches_by_scenario(result)[2][0].confidence_score == 0.95
 
-    def test_boundary_60_days_matches(self):
-        """Exactly 60 days difference — should match."""
-        gl  = [_gl_row(date="2024-01-01", entity="A")]
-        sub = [_sub_row(date="2024-03-01", entity="B")]   # 60 days diff
+    def test_boundary_30_days_matches(self):
+        """Exactly 30 days difference — should match S2 (boundary inclusive)."""
+        gl  = [_gl_row(date="2024-01-01")]
+        sub = [_sub_row(date="2024-01-31")]   # 30 days diff
         result = _run(gl, sub)
         s2 = _matches_by_scenario(result)[2]
         assert len(s2) == 1
 
-    def test_boundary_61_days_no_match(self):
-        """61 days difference — should NOT match."""
-        gl  = [_gl_row(date="2024-01-01", entity="A")]
-        sub = [_sub_row(date="2024-03-03", entity="B")]   # 62 days diff
+    def test_beyond_30_days_not_in_s2(self):
+        """31 days — falls through S2 (hits S3 instead, so no S2 match)."""
+        gl  = [_gl_row(date="2024-01-01")]
+        sub = [_sub_row(date="2024-02-01")]   # 31 days diff
+        result = _run(gl, sub)
+        s2 = _matches_by_scenario(result)[2]
+        assert len(s2) == 0
+
+    def test_different_entity_no_match_in_scenario2(self):
+        """Entity is required in S2; mismatch → no match in any scenario."""
+        gl  = [_gl_row(date="2024-01-15", entity="CORP_A")]
+        sub = [_sub_row(date="2024-01-20", entity="CORP_B")]
         result = _run(gl, sub)
         s2 = _matches_by_scenario(result)[2]
         assert len(s2) == 0
 
     def test_different_vendor_no_match_in_scenario2(self):
-        gl  = [_gl_row(vendor="vendor a", date="2024-01-15", entity="A")]
-        sub = [_sub_row(vendor="vendor b", date="2024-01-20", entity="B")]
+        gl  = [_gl_row(vendor="vendor a", date="2024-01-15")]
+        sub = [_sub_row(vendor="vendor b", date="2024-01-20")]
         result = _run(gl, sub)
         s2 = _matches_by_scenario(result)[2]
         assert len(s2) == 0
 
     def test_scenario1_records_not_available_for_scenario2(self):
         """Record matched in scenario 1 must not appear in scenario 2 matches."""
-        # Two GL rows; one matches scenario 1, one should match scenario 2
         gl = [
             _gl_row(gl_id="GL001", date="2024-01-15", entity="CORP"),  # exact match S1
-            _gl_row(gl_id="GL002", date="2024-01-15", entity="A"),      # date-tolerance S2
+            _gl_row(gl_id="GL002", date="2024-01-15", entity="CORP"),  # 10-day gap S2
         ]
         sub = [
             _sub_row(sub_id="SUB001", date="2024-01-15", entity="CORP"),  # S1 match
-            _sub_row(sub_id="SUB002", date="2024-02-10", entity="B"),     # S2 match
+            _sub_row(sub_id="SUB002", date="2024-01-25", entity="CORP"),  # S2 match
         ]
         result = _run(gl, sub)
         s1_gl_ids = {m.record_ids_A[0] for m in _matches_by_scenario(result)[1]}
@@ -265,164 +272,81 @@ class TestScenario2:
 
 
 # ===========================================================================
-# Scenario 3 — Amount + Entity + Date tolerance ±60 days
+# Scenario 3 — Vendor + Amount + Entity + Date tolerance ≤60 days (conf 0.90)
 # ===========================================================================
 
 class TestScenario3:
     """
-    Use different vendors so scenarios 1 & 2 don't fire; same entity for S3.
+    Use the same vendor/amount/entity but a date gap of 31–60 days.
+    S1 requires exact date; S2 requires ≤30 days; S3 catches the 31–60 day band.
     """
 
-    def test_amount_entity_date_tolerance_produces_match(self):
-        gl  = [_gl_row(vendor="vendor x", date="2024-01-15")]
-        sub = [_sub_row(vendor="vendor y", date="2024-02-01")]   # same entity, within 60d
+    def test_wide_tolerance_date_produces_match(self):
+        """36-day gap — beyond S2 but within S3's ≤60 day band."""
+        gl  = [_gl_row(date="2024-01-15")]
+        sub = [_sub_row(date="2024-02-20")]   # 36 days diff, same vendor+entity
         result = _run(gl, sub)
         s3 = _matches_by_scenario(result)[3]
         assert len(s3) == 1
 
     def test_scenario_id_is_3(self):
-        gl  = [_gl_row(vendor="vendor x", date="2024-01-15")]
-        sub = [_sub_row(vendor="vendor y", date="2024-02-01")]
+        gl  = [_gl_row(date="2024-01-15")]
+        sub = [_sub_row(date="2024-02-20")]
         result = _run(gl, sub)
         assert _matches_by_scenario(result)[3][0].scenario_id == 3
 
-    def test_confidence_score_is_0_85(self):
-        gl  = [_gl_row(vendor="vendor x", date="2024-01-15")]
-        sub = [_sub_row(vendor="vendor y", date="2024-02-01")]
+    def test_confidence_score_is_0_90(self):
+        gl  = [_gl_row(date="2024-01-15")]
+        sub = [_sub_row(date="2024-02-20")]
         result = _run(gl, sub)
-        assert _matches_by_scenario(result)[3][0].confidence_score == 0.85
+        assert _matches_by_scenario(result)[3][0].confidence_score == 0.90
 
-    def test_different_entity_no_match_in_scenario3(self):
-        gl  = [_gl_row(vendor="vendor x", entity="A")]
-        sub = [_sub_row(vendor="vendor y", entity="B")]
+    def test_boundary_60_days_matches_in_scenario3(self):
+        """Exactly 60 days difference — should match S3 (boundary inclusive)."""
+        gl  = [_gl_row(date="2024-01-01")]
+        sub = [_sub_row(date="2024-03-01")]   # 60 days diff
+        result = _run(gl, sub)
+        s3 = _matches_by_scenario(result)[3]
+        assert len(s3) == 1
+
+    def test_boundary_61_days_no_match_in_scenario3(self):
+        """61 days — exceeds S3 wide band; no match."""
+        gl  = [_gl_row(date="2024-01-01")]
+        sub = [_sub_row(date="2024-03-03")]   # 62 days diff
         result = _run(gl, sub)
         s3 = _matches_by_scenario(result)[3]
         assert len(s3) == 0
 
-    def test_boundary_60_days_matches_in_scenario3(self):
-        gl  = [_gl_row(vendor="vendor x", date="2024-01-01")]
-        sub = [_sub_row(vendor="vendor y", date="2024-03-01")]   # 60 days
+    def test_different_vendor_no_match_in_scenario3(self):
+        """Vendor is required in S3; mismatch → no match."""
+        gl  = [_gl_row(vendor="vendor a", date="2024-01-15")]
+        sub = [_sub_row(vendor="vendor b", date="2024-02-20")]
         result = _run(gl, sub)
         s3 = _matches_by_scenario(result)[3]
-        assert len(s3) == 1
+        assert len(s3) == 0
+
+    def test_different_entity_no_match_in_scenario3(self):
+        """Entity is required in S3; mismatch → no match."""
+        gl  = [_gl_row(date="2024-01-15", entity="CORP_A")]
+        sub = [_sub_row(date="2024-02-20", entity="CORP_B")]
+        result = _run(gl, sub)
+        s3 = _matches_by_scenario(result)[3]
+        assert len(s3) == 0
 
     def test_prior_scenario_records_not_reused_in_scenario3(self):
         """Record matched in S1 or S2 must not appear in S3 matches."""
         gl = [
             _gl_row(gl_id="GL001", vendor="vendor a", date="2024-01-15", entity="CORP"),
-            _gl_row(gl_id="GL002", vendor="vendor z", date="2024-01-15", entity="CORP"),
+            _gl_row(gl_id="GL002", vendor="vendor a", date="2024-01-15", entity="CORP"),
         ]
         sub = [
-            _sub_row(sub_id="SUB001", vendor="vendor a", date="2024-01-15", entity="CORP"),
-            _sub_row(sub_id="SUB002", vendor="vendor w", date="2024-01-20", entity="CORP"),
+            _sub_row(sub_id="SUB001", vendor="vendor a", date="2024-01-15", entity="CORP"),  # S1
+            _sub_row(sub_id="SUB002", vendor="vendor a", date="2024-02-20", entity="CORP"),  # S3
         ]
         result = _run(gl, sub)
         s1_gl = {m.record_ids_A[0] for m in _matches_by_scenario(result)[1]}
         s3_gl = {m.record_ids_A[0] for m in _matches_by_scenario(result)[3]}
         assert s1_gl.isdisjoint(s3_gl)
-
-
-# ===========================================================================
-# Scenario 4 — Deterministic grouping
-# ===========================================================================
-
-class TestScenario4:
-
-    def test_n_to_1_match(self):
-        """Two GL rows sum to one Sub amount → many_to_one match."""
-        gl = [
-            _gl_row(gl_id="GL001", vendor="vendor x", amount=60.00, date="2099-01-01"),
-            _gl_row(gl_id="GL002", vendor="vendor y", amount=40.00, date="2099-01-01"),
-        ]
-        sub = [
-            _sub_row(sub_id="SUB001", vendor="vendor z", amount=100.00, date="2099-01-01"),
-        ]
-        result = _run(gl, sub)
-        s4 = _matches_by_scenario(result)[4]
-        assert len(s4) == 1
-        assert s4[0].grouping_type == "many_to_one"
-        assert sorted(s4[0].record_ids_A) == ["GL001", "GL002"]
-        assert s4[0].record_ids_B == ["SUB001"]
-
-    def test_n_to_1_scenario_id_is_4(self):
-        gl = [
-            _gl_row(gl_id="GL001", vendor="vx", amount=60.00, date="2099-01-01"),
-            _gl_row(gl_id="GL002", vendor="vy", amount=40.00, date="2099-01-01"),
-        ]
-        sub = [_sub_row(sub_id="SUB001", vendor="vz", amount=100.00, date="2099-01-01")]
-        result = _run(gl, sub)
-        assert _matches_by_scenario(result)[4][0].scenario_id == 4
-
-    def test_n_to_1_confidence_score_is_0_75(self):
-        gl = [
-            _gl_row(gl_id="GL001", vendor="vx", amount=60.00, date="2099-01-01"),
-            _gl_row(gl_id="GL002", vendor="vy", amount=40.00, date="2099-01-01"),
-        ]
-        sub = [_sub_row(sub_id="SUB001", vendor="vz", amount=100.00, date="2099-01-01")]
-        result = _run(gl, sub)
-        assert _matches_by_scenario(result)[4][0].confidence_score == 0.75
-
-    def test_1_to_n_match(self):
-        """One GL row equals sum of two Sub rows → one_to_many match."""
-        gl = [
-            _gl_row(gl_id="GL001", vendor="vendor x", amount=100.00, date="2099-01-01"),
-        ]
-        sub = [
-            _sub_row(sub_id="SUB001", vendor="vendor y", amount=60.00, date="2099-01-01"),
-            _sub_row(sub_id="SUB002", vendor="vendor z", amount=40.00, date="2099-01-01"),
-        ]
-        result = _run(gl, sub)
-        s4 = _matches_by_scenario(result)[4]
-        assert len(s4) == 1
-        assert s4[0].grouping_type == "one_to_many"
-        assert s4[0].record_ids_A == ["GL001"]
-        assert sorted(s4[0].record_ids_B) == ["SUB001", "SUB002"]
-
-    def test_entity_boundary_enforced(self):
-        """GL and Sub in different entities must NOT be grouped."""
-        gl = [
-            _gl_row(gl_id="GL001", vendor="vx", amount=60.00, date="2099-01-01", entity="A"),
-            _gl_row(gl_id="GL002", vendor="vy", amount=40.00, date="2099-01-01", entity="A"),
-        ]
-        sub = [
-            _sub_row(sub_id="SUB001", vendor="vz", amount=100.00, date="2099-01-01", entity="B"),
-        ]
-        result = _run(gl, sub)
-        s4 = _matches_by_scenario(result)[4]
-        assert len(s4) == 0
-
-    def test_n_to_1_records_removed_from_residual(self):
-        gl = [
-            _gl_row(gl_id="GL001", vendor="vx", amount=60.00, date="2099-01-01"),
-            _gl_row(gl_id="GL002", vendor="vy", amount=40.00, date="2099-01-01"),
-        ]
-        sub = [_sub_row(sub_id="SUB001", vendor="vz", amount=100.00, date="2099-01-01")]
-        result = _run(gl, sub)
-        assert len(result.residual_gl) == 0
-        assert len(result.residual_sub) == 0
-
-    def test_no_double_use_of_records_between_n1_and_1n(self):
-        """
-        In N:1 phase, GL001+GL002 are matched to SUB001.
-        They must not be reused in the 1:N phase.
-        """
-        gl = [
-            _gl_row(gl_id="GL001", vendor="vx", amount=60.00, date="2099-01-01"),
-            _gl_row(gl_id="GL002", vendor="vy", amount=40.00, date="2099-01-01"),
-            _gl_row(gl_id="GL003", vendor="vq", amount=100.00, date="2099-01-01"),
-        ]
-        sub = [
-            _sub_row(sub_id="SUB001", vendor="vz", amount=100.00, date="2099-01-01"),
-            _sub_row(sub_id="SUB002", vendor="vw", amount=60.00, date="2099-01-01"),
-            _sub_row(sub_id="SUB003", vendor="vv", amount=40.00, date="2099-01-01"),
-        ]
-        result = _run(gl, sub)
-        # GL001+GL002 matched to SUB001 (N:1); GL003 matched to SUB002+SUB003 (1:N)
-        used_gl = [rid for m in result.matches for rid in m.record_ids_A]
-        used_sub = [rid for m in result.matches for rid in m.record_ids_B]
-        # No duplicates
-        assert len(used_gl) == len(set(used_gl))
-        assert len(used_sub) == len(set(used_sub))
 
 
 # ===========================================================================
@@ -539,9 +463,9 @@ class TestResultShape:
         assert isinstance(result.matches[0].match_id, str)
         assert len(result.matches[0].match_id) > 0
 
-    def test_scenario_counts_has_all_four_keys(self):
+    def test_scenario_counts_has_all_three_keys(self):
         result = _run([_gl_row()], [_sub_row()])
-        assert set(result.scenario_counts.keys()) == {1, 2, 3, 4}
+        assert set(result.scenario_counts.keys()) == {1, 2, 3}
 
     def test_total_gl_matches_input_length(self):
         gl = [_gl_row(gl_id=f"GL{i:03d}") for i in range(5)]

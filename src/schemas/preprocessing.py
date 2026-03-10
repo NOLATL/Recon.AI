@@ -1,10 +1,15 @@
 """Pydantic v2 response schemas for the preprocessing (vendor normalization) endpoint."""
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
 from src.schemas.intake import SnapshotInfo
+
+
+class VendorOverridesRequest(BaseModel):
+    """Request body for applying manual vendor overrides."""
+    vendor_overrides: Dict[str, str] = {}
 
 
 class NormalizationEntrySchema(BaseModel):
@@ -26,8 +31,10 @@ class NormalizationSummary(BaseModel):
 
 
 class PreprocessingResponse(BaseModel):
-    session_id:              str
-    state:                   str
-    normalization_summary:   NormalizationSummary
+    session_id:               str
+    state:                    str
+    normalization_summary:    NormalizationSummary
     vendor_normalization_map: List[NormalizationEntrySchema]
-    snapshot:                SnapshotInfo
+    unmatched_sub_vendors:    List[str] = []
+    unmatched_sub_normalized: Dict[str, str] = {}
+    snapshot:                 SnapshotInfo

@@ -113,8 +113,8 @@ _GL = {
     "gl_id":            ["GL001", "GL002", "GL003", "GL004"],
     "entity":           ["US_CORP", "US_CORP", "PROB_CORP", "AI_ENTITY"],
     "account_code":     ["ACCT_100", "ACCT_101", "ACCT_102", "ACCT_103"],
-    "vendor_name":      ["Vendor A LLC", "Unique Vendor XYZ", "Alpha Supplies Inc", "Delta Vendor"],
-    "transaction_date": ["2024-01-15", "2024-02-20", "2024-03-10", "2024-05-01"],
+    "vendor_name":      ["Vendor A LLC", "Vendor B", "Alpha Supplies Inc", "Delta Vendor"],
+    "transaction_date": ["2024-01-15", "2024-01-15", "2024-03-10", "2024-05-01"],
     "amount":           ["100.00", "250.50", "150.00", "1000.00"],
     "currency":         ["USD", "USD", "USD", "USD"],
     "exception_flag":   ["False", "True", "False", "False"],
@@ -123,7 +123,7 @@ _GL = {
 _SUB = {
     "subledger_id":     ["SUB001", "SUB002", "SUB003", "SUB004"],
     "entity":           ["US_CORP", "US_CORP", "PROB_CORP", "AI_ENTITY"],
-    "vendor_name":      ["Vendor A", "Other Sub", "Alpha Supplies", "Delta Vendor"],
+    "vendor_name":      ["Vendor A", "Vendor B", "Alpha Supplies", "Delta Vendor"],
     "transaction_date": ["2024-01-15", "2024-02-20", "2024-03-10", "2024-05-01"],
     "amount":           ["100.00", "250.50", "151.50", "1400.00"],
     "currency":         ["USD", "USD", "USD", "USD"],
@@ -444,30 +444,59 @@ class TestKnownResultAllRejected:
 # ===========================================================================
 
 class TestFinalBucketContent:
-    def test_final_contains_deterministic_matches(self, client, session_id):
+    def test_deterministic_matches_remain_in_deterministic_bucket(self, client, session_id):
+        """
+        matching['final'] holds only AI-accepted matches.
+        Deterministic matches stay in their own 'deterministic' bucket after consolidation.
+        """
         _advance_to_ai_review_complete_all_accepted(client, session_id)
         det_ids = {m["match_id"] for m in rm.get_runtime(session_id)["matching"]["deterministic"]}
         _consolidate(client, session_id)
-        final_ids = {m["match_id"] for m in rm.get_runtime(session_id)["matching"]["final"]}
-        assert det_ids.issubset(final_ids)
+        det_ids_after = {m["match_id"] for m in rm.get_runtime(session_id)["matching"]["deterministic"]}
+        assert det_ids == det_ids_after
 
-    def test_final_contains_accepted_probabilistic(self, client, session_id):
+    def test_accepted_probabilistic_remain_in_probabilistic_bucket(self, client, session_id):
+        """
+        matching['final'] holds only AI-accepted matches.
+        Accepted probabilistic matches stay in their own 'probabilistic' bucket after consolidation.
+        """
         _advance_to_ai_review_complete_all_accepted(client, session_id)
-        # Probabilistic accepted matches
         prob_accepted_ids = {
             m["match_id"]
             for m in rm.get_runtime(session_id)["matching"]["probabilistic"]
             if m.get("user_status") == "accepted"
         }
         _consolidate(client, session_id)
-        final_ids = {m["match_id"] for m in rm.get_runtime(session_id)["matching"]["final"]}
-        assert prob_accepted_ids.issubset(final_ids)
+        prob_accepted_after = {
+            m["match_id"]
+            for m in rm.get_runtime(session_id)["matching"]["probabilistic"]
+            if m.get("user_status") == "accepted"
+        }
+        assert prob_accepted_ids == prob_accepted_after
 
-    def test_final_count_equals_total_match_count(self, client, session_id):
+    def test_final_bucket_contains_only_ai_matches(self, client, session_id):
+        """
+        After consolidation, matching['final'] must contain only AI-accepted matches
+        (those with 'ai_confidence_score'). Det and prob matches are NOT written here.
+        """
+        _advance_to_ai_review_complete_all_accepted(client, session_id)
+        _consolidate(client, session_id)
+        final_list = rm.get_runtime(session_id)["matching"]["final"]
+        for m in final_list:
+            assert "ai_confidence_score" in m, (
+                f"Non-AI match found in final bucket: {m.get('match_id')}"
+            )
+
+    def test_summary_total_equals_det_plus_prob_plus_ai(self, client, session_id):
+        """total_match_count == det + accepted_prob + ai."""
         _advance_to_ai_review_complete_all_accepted(client, session_id)
         data = _consolidate(client, session_id).json()
-        final_list = rm.get_runtime(session_id)["matching"]["final"]
-        assert len(final_list) == data["summary"]["total_match_count"]
+        s = data["summary"]
+        assert s["total_match_count"] == (
+            s["deterministic_match_count"] +
+            s["probabilistic_match_count"] +
+            s["ai_match_count"]
+        )
 
     def test_consolidation_metadata_written_to_runtime(self, client, session_id):
         _advance_to_ai_review_complete_all_accepted(client, session_id)

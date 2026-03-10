@@ -20,10 +20,12 @@ Architecture notes:
 - No recomputation. This is a pure output generation step.
 """
 
+import io
 import os
+import zipfile
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
 
 import src.core.runtime_manager as rm
 from src.core.state_machine import ReconciliationState
@@ -84,27 +86,36 @@ def run_finalization_export(session_id: str):
     matching     = runtime["matching"]
     pool         = runtime.get("residual_pool", {})
 
-    all_matches  = matching.get("final",         [])
+    det_matches  = matching.get("deterministic",  [])
     prob_matches = matching.get("probabilistic",  [])
+    ai_final     = [m for m in matching.get("final", []) if "ai_confidence_score" in m]
     ai_suggested = matching.get("ai_suggested",   [])
     rejected     = matching.get("rejected",       [])
 
     residual_gl  = pool.get("gl",        None)
     residual_sub = pool.get("subledger", None)
 
-    ai_meta      = runtime.get("ai_suggested_meta", {})
-    consolidation = runtime.get("consolidation",    {})
+    ai_meta       = runtime.get("ai_suggested_meta", {})
+    consolidation = runtime.get("consolidation",     {})
+    raw_data      = runtime.get("raw_data",          {})
+    clean_data    = runtime.get("clean_data",        {})
+    snapshots     = runtime.get("snapshots",         {})
 
     # --- Run export (pure, writes files to temp dir) ---
     manifest = run_export(
-        all_matches=   all_matches,
+        det_matches=   det_matches,
         prob_matches=  prob_matches,
+        ai_final=      ai_final,
         ai_suggested=  ai_suggested,
         rejected=      rejected,
         residual_gl=   residual_gl,
         residual_sub=  residual_sub,
         ai_meta=       ai_meta,
         consolidation= consolidation,
+        raw_data=      raw_data,
+        clean_data=    clean_data,
+        snapshots=     snapshots,
+        matching=      matching,
         session_id=    session_id,
     )
 
@@ -250,4 +261,63 @@ def download_export_file(session_id: str, filename: str):
         path=       path,
         filename=   filename,
         media_type= media_type,
+    )
+
+
+@router.get("/{session_id}/export/zip")
+def download_export_zip(
+    session_id: str,
+    files: str = Query(..., description="Comma-separated filenames to include in the ZIP"),
+):
+    """
+    Stream a ZIP archive containing the requested exported files.
+
+    Only filenames present in this session's export manifest are allowed,
+    preventing path-traversal attacks.  Requires FINALIZED state.
+    """
+    if not rm.session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    current = rm.get_current_state(session_id)
+    if current != ReconciliationState.FINALIZED:
+        raise HTTPException(
+            status_code=409,
+            detail="ZIP downloads are only available in 'finalized' state.",
+        )
+
+    runtime        = rm.get_runtime(session_id)
+    export_meta    = runtime.get("export", {})
+    manifest_files = export_meta.get("files", [])
+    manifest_map   = {f["filename"]: f["path"] for f in manifest_files}
+
+    requested = [fn.strip() for fn in files.split(",") if fn.strip()]
+    if not requested:
+        raise HTTPException(status_code=400, detail="No filenames provided.")
+
+    # Validate every requested filename against the manifest.
+    for fn in requested:
+        if fn not in manifest_map:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File '{fn}' is not part of this session's export.",
+            )
+
+    # Build an in-memory ZIP.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for fn in requested:
+            path = manifest_map[fn]
+            if not os.path.exists(path):
+                raise HTTPException(
+                    status_code=410,
+                    detail=f"File has been removed from the server: {fn}",
+                )
+            zf.write(path, arcname=fn)
+    buf.seek(0)
+
+    zip_name = f"recon_export_{session_id[:8]}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
     )

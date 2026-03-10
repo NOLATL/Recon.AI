@@ -88,17 +88,20 @@ class DateRange:
 class FileProfilingResult:
     file_key: str
     row_count: int
+    unique_vendor_count: int
     null_counts: Dict[str, int]
     null_percentages: Dict[str, float]
     duplicate_row_count: int
     numeric_distributions: Dict[str, NumericDistribution]
     date_ranges: Dict[str, DateRange]
     entity_distribution: Dict[str, int]
+    column_profiles: Dict[str, Any]   # per-column stats used by Data Description table
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "file_key":               self.file_key,
             "row_count":              self.row_count,
+            "unique_vendor_count":    self.unique_vendor_count,
             "null_counts":            self.null_counts,
             "null_percentages":       self.null_percentages,
             "duplicate_row_count":    self.duplicate_row_count,
@@ -109,6 +112,7 @@ class FileProfilingResult:
                 k: v.to_dict() for k, v in self.date_ranges.items()
             },
             "entity_distribution":    self.entity_distribution,
+            "column_profiles":        self.column_profiles,
         }
 
 
@@ -208,6 +212,121 @@ def _entity_distribution(df: pd.DataFrame, entity_col: Optional[str]) -> Dict[st
     return df[entity_col].value_counts().astype(int).to_dict()
 
 
+def _histogram_buckets_numeric(series: pd.Series, n_bins: int = 8) -> List[Dict[str, Any]]:
+    """Compute histogram buckets for a numeric series using equal-width bins."""
+    non_null = pd.to_numeric(series, errors="coerce").dropna()
+    if len(non_null) < 2 or non_null.nunique() <= 1:
+        return []
+    try:
+        cuts = pd.cut(non_null, bins=n_bins, precision=0)
+        counts = cuts.value_counts().sort_index()
+        return [
+            {"label": f"{iv.left:,.0f}–{iv.right:,.0f}", "count": int(cnt)}
+            for iv, cnt in counts.items()
+        ]
+    except Exception:
+        return []
+
+
+def _histogram_buckets_categorical(series: pd.Series, top_n: int = 8) -> List[Dict[str, Any]]:
+    """Return top-N value-count buckets for a low-cardinality column."""
+    non_null = series.dropna()
+    if non_null.empty:
+        return []
+    vc = non_null.value_counts().head(top_n)
+    return [{"label": str(label), "count": int(cnt)} for label, cnt in vc.items()]
+
+
+def _column_profiles(
+    df: pd.DataFrame,
+    file_key: str,
+    numeric_dists: Dict[str, "NumericDistribution"],
+    date_ranges: Dict[str, "DateRange"],
+) -> Dict[str, Any]:
+    """
+    Build a per-column profile dict for every column in the DataFrame.
+
+    Each entry contains:
+      - data_type:   "numeric" | "date" | "string"
+      - unique_count: int
+      - null_count:   int
+      - null_pct:     float
+      - histogram:    list of {label, count}  (numeric or low-cardinality string)
+      For numeric columns also: min, max, mean, median, std, sum
+      For string columns also:  max_len, min_len, blank_count, mode
+    """
+    numeric_cols = set(_NUMERIC_COLUMNS.get(file_key, []))
+    date_cols    = set(_DATE_COLUMNS.get(file_key, []))
+    row_count    = max(len(df), 1)
+
+    profiles: Dict[str, Any] = {}
+
+    for col in df.columns:
+        series    = df[col]
+        non_null  = series.dropna()
+        null_cnt  = int(series.isna().sum())
+        null_pct  = round(null_cnt / row_count * 100, 4)
+        unique_ct = int(series.nunique())
+
+        if col in numeric_cols:
+            nd = numeric_dists.get(col)
+            hist = _histogram_buckets_numeric(series)
+            profiles[col] = {
+                "data_type":    "numeric",
+                "unique_count": unique_ct,
+                "null_count":   null_cnt,
+                "null_pct":     null_pct,
+                "min":          nd.min    if nd else None,
+                "max":          nd.max    if nd else None,
+                "mean":         nd.mean   if nd else None,
+                "median":       nd.median if nd else None,
+                "std":          nd.std    if nd else None,
+                "sum":          nd.sum    if nd else None,
+                "histogram":    hist,
+            }
+        elif col in date_cols:
+            dr = date_ranges.get(col)
+            profiles[col] = {
+                "data_type":    "date",
+                "unique_count": unique_ct,
+                "null_count":   null_cnt,
+                "null_pct":     null_pct,
+                "min":          dr.min if dr else None,
+                "max":          dr.max if dr else None,
+                "histogram":    [],
+            }
+        else:
+            # String / categorical column
+            if non_null.empty:
+                mode_val = None
+                max_len  = None
+                min_len  = None
+                blank_ct = 0
+            else:
+                str_series = non_null.astype(str)
+                mode_val   = str(non_null.mode().iloc[0]) if len(non_null.mode()) else None
+                max_len    = int(str_series.str.len().max())
+                min_len    = int(str_series.str.len().min())
+                blank_ct   = int((str_series.str.strip() == "").sum())
+
+            # Use categorical histogram only for low-cardinality columns
+            hist = _histogram_buckets_categorical(series) if unique_ct <= 30 else []
+
+            profiles[col] = {
+                "data_type":    "string",
+                "unique_count": unique_ct,
+                "null_count":   null_cnt,
+                "null_pct":     null_pct,
+                "max_len":      max_len,
+                "min_len":      min_len,
+                "blank_count":  blank_ct,
+                "mode":         mode_val,
+                "histogram":    hist,
+            }
+
+    return profiles
+
+
 # ---------------------------------------------------------------------------
 # Per-file profiler
 # ---------------------------------------------------------------------------
@@ -225,15 +344,23 @@ def _profile_file(df: pd.DataFrame, file_key: str) -> FileProfilingResult:
         if col in df.columns:
             date_ranges[col] = _date_range(df[col])
 
+    unique_vendor_count = (
+        int(df["vendor_name"].nunique()) if "vendor_name" in df.columns else 0
+    )
+
+    col_profiles = _column_profiles(df, file_key, numeric_dists, date_ranges)
+
     return FileProfilingResult(
         file_key=file_key,
         row_count=len(df),
+        unique_vendor_count=unique_vendor_count,
         null_counts=null_counts,
         null_percentages=null_pct,
         duplicate_row_count=_duplicate_count(df),
         numeric_distributions=numeric_dists,
         date_ranges=date_ranges,
         entity_distribution=_entity_distribution(df, _ENTITY_COLUMN.get(file_key)),
+        column_profiles=col_profiles,
     )
 
 

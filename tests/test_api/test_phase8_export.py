@@ -88,8 +88,8 @@ _GL = {
     "gl_id":            ["GL001", "GL002", "GL003", "GL004"],
     "entity":           ["US_CORP", "US_CORP", "PROB_CORP", "AI_ENTITY"],
     "account_code":     ["ACCT_100", "ACCT_101", "ACCT_102", "ACCT_103"],
-    "vendor_name":      ["Vendor A LLC", "Unique Vendor XYZ", "Alpha Supplies Inc", "Delta Vendor"],
-    "transaction_date": ["2024-01-15", "2024-02-20", "2024-03-10", "2024-05-01"],
+    "vendor_name":      ["Vendor A LLC", "Vendor B", "Alpha Supplies Inc", "Delta Vendor"],
+    "transaction_date": ["2024-01-15", "2024-01-15", "2024-03-10", "2024-05-01"],
     "amount":           ["100.00", "250.50", "150.00", "1000.00"],
     "currency":         ["USD", "USD", "USD", "USD"],
     "exception_flag":   ["False", "True", "False", "False"],
@@ -98,7 +98,7 @@ _GL = {
 _SUB = {
     "subledger_id":     ["SUB001", "SUB002", "SUB003", "SUB004"],
     "entity":           ["US_CORP", "US_CORP", "PROB_CORP", "AI_ENTITY"],
-    "vendor_name":      ["Vendor A", "Other Sub", "Alpha Supplies", "Delta Vendor"],
+    "vendor_name":      ["Vendor A", "Vendor B", "Alpha Supplies", "Delta Vendor"],
     "transaction_date": ["2024-01-15", "2024-02-20", "2024-03-10", "2024-05-01"],
     "amount":           ["100.00", "250.50", "151.50", "1400.00"],
     "currency":         ["USD", "USD", "USD", "USD"],
@@ -308,18 +308,27 @@ class TestHappyPath:
 
 class TestResponseFiles:
     _EXPECTED = {
-        "final_matches.csv",
+        "uploaded_gl.csv",
+        "uploaded_subledger.csv",
+        "preprocessing_output.csv",
+        "deterministic_matches.csv",
+        "probabilistic_matches.csv",
+        "ai_matches.csv",
+        "final_results.csv",
         "residual_unmatched_gl.csv",
         "residual_unmatched_sub.csv",
         "rejected_matches.csv",
         "audit_log.csv",
+        "process_log_run.csv",
+        "process_log_steps.csv",
+        "process_log_ai.csv",
         "reconciliation_report.pdf",
     }
 
-    def test_exactly_six_files(self, client, session_id):
+    def test_exactly_fifteen_files(self, client, session_id):
         _advance_to_final_consolidated_all_accepted(client, session_id)
         data = _export(client, session_id).json()
-        assert len(data["files"]) == 6
+        assert len(data["files"]) == 15
 
     def test_expected_filenames(self, client, session_id):
         _advance_to_final_consolidated_all_accepted(client, session_id)
@@ -362,10 +371,10 @@ class TestKnownResultAllAccepted:
         except pd.errors.EmptyDataError:
             return 0
 
-    def test_final_matches_has_four_rows(self, client, session_id):
+    def test_final_results_has_four_rows(self, client, session_id):
         _advance_to_final_consolidated_all_accepted(client, session_id)
         data = _export(client, session_id).json()
-        assert self._csv_rows(data["export_dir"], "final_matches.csv") == 4
+        assert self._csv_rows(data["export_dir"], "final_results.csv") == 4
 
     def test_residual_gl_has_zero_rows(self, client, session_id):
         _advance_to_final_consolidated_all_accepted(client, session_id)
@@ -403,11 +412,11 @@ class TestKnownResultAllRejected:
         except pd.errors.EmptyDataError:
             return 0
 
-    def test_final_matches_has_two_rows(self, client, session_id):
+    def test_final_results_has_two_rows(self, client, session_id):
         """Only deterministic matches remain accepted."""
         _advance_to_final_consolidated_all_rejected(client, session_id)
         data = _export(client, session_id).json()
-        assert self._csv_rows(data["export_dir"], "final_matches.csv") == 2
+        assert self._csv_rows(data["export_dir"], "final_results.csv") == 2
 
     def test_rejected_has_at_least_one_row(self, client, session_id):
         _advance_to_final_consolidated_all_rejected(client, session_id)
@@ -540,7 +549,7 @@ class TestExportMetaInRuntime:
         _export(client, session_id)
         export_meta = rm.get_runtime(session_id)["export"]
         assert "files" in export_meta
-        assert len(export_meta["files"]) == 6
+        assert len(export_meta["files"]) == 15
 
     def test_export_meta_files_have_sha256(self, client, session_id):
         _advance_to_final_consolidated_all_accepted(client, session_id)

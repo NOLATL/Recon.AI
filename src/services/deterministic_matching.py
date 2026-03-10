@@ -7,21 +7,17 @@ Four ordered scenarios (each scenario operates only on records not consumed by p
     Exact match on: Vendor_Normalized, amount (rounded to 2 dp), transaction_date, entity
     Confidence: 1.00 | grouping_type: "one_to_one"
 
-  Scenario 2 — Vendor + Amount + Date tolerance
-    Exact match on: Vendor_Normalized, amount (rounded to 2 dp)
-    Date tolerance: abs(date_gl − date_sub) ≤ 60 days
+  Scenario 2 — Vendor + Amount + Entity + narrow date tolerance
+    Exact match on: Vendor_Normalized, amount (rounded to 2 dp), entity
+    Date tolerance: abs(date_gl − date_sub) ≤ 30 days
     Confidence: 0.95 | grouping_type: "one_to_one"
 
-  Scenario 3 — Amount + Entity + Date tolerance
-    Exact match on: amount (rounded to 2 dp), entity
+  Scenario 3 — Vendor + Amount + Entity + wide date tolerance
+    Exact match on: Vendor_Normalized, amount (rounded to 2 dp), entity
     Date tolerance: abs(date_gl − date_sub) ≤ 60 days
-    Confidence: 0.85 | grouping_type: "one_to_one"
+    Confidence: 0.90 | grouping_type: "one_to_one"
 
-  Scenario 4 — Deterministic grouping (exact sum equality, pairs only)
-    N:1 — pairs of GL rows (same entity) summing to one Sub amount
-    1:N — one GL row whose amount equals the sum of a pair of Sub rows (same entity)
-    Confidence: 0.75 | grouping_type: "many_to_one" | "one_to_many"
-    Guard: skipped when either residual pool exceeds SCENARIO_4_POOL_LIMIT (50) records
+  N:M grouping (splits and accruals) is handled by the Probabilistic phase.
 
 Architecture notes:
   - Pure function: run_deterministic_matching() has no side effects on the runtime.
@@ -40,8 +36,7 @@ Architecture notes:
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
-from itertools import combinations
+from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
 import pandas as pd
@@ -52,10 +47,8 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-DATE_TOLERANCE_DAYS: int = 60
-MAX_GROUP_SIZE: int = 2          # pairs only — keeps combinatorial cost O(n²) per entity
-SCENARIO_4_POOL_LIMIT: int = 50  # skip Scenario 4 when either pool exceeds this size
-
+DATE_TOLERANCE_NARROW: int = 30   # Scenario 2
+DATE_TOLERANCE_WIDE:   int = 60   # Scenario 3
 _EPOCH = pd.Timestamp("1970-01-01")
 
 _SCENARIO_META: Dict[int, dict] = {
@@ -64,16 +57,12 @@ _SCENARIO_META: Dict[int, dict] = {
         "confidence_score": 1.00,
     },
     2: {
-        "description": "Vendor + Amount match with date tolerance ±60 days",
+        "description": "Vendor + Amount + Entity match with date tolerance ±30 days",
         "confidence_score": 0.95,
     },
     3: {
-        "description": "Amount + Entity match with date tolerance ±60 days",
-        "confidence_score": 0.85,
-    },
-    4: {
-        "description": "Deterministic grouping: exact sum equality, bounded search",
-        "confidence_score": 0.75,
+        "description": "Vendor + Amount + Entity match with date tolerance ±60 days",
+        "confidence_score": 0.90,
     },
 }
 
@@ -242,7 +231,7 @@ def _scenario_2(
     gl_pool: pd.DataFrame, sub_pool: pd.DataFrame
 ) -> Tuple[List[MatchRecord], Set[str], Set[str]]:
     """
-    Vendor + Amount match with date tolerance ±60 days (no entity constraint).
+    Vendor + Amount + Entity match with narrow date tolerance ±30 days.
 
     Date ordinals are pre-computed on each pool (N+M operations) rather than
     on the merged cross-product (up to N×M operations).
@@ -253,8 +242,8 @@ def _scenario_2(
     gl_s = gl_pool.copy()
     sub_s = sub_pool.copy()
 
-    gl_s["_ak"]       = _normalise_amount(gl_s["amount"])
-    sub_s["_ak"]      = _normalise_amount(sub_s["amount"])
+    gl_s["_ak"]    = _normalise_amount(gl_s["amount"])
+    sub_s["_ak"]   = _normalise_amount(sub_s["amount"])
 
     # Pre-compute date ordinals on individual pools (N+M rows, not N×M)
     gl_s["_dord"]  = _date_ordinals(gl_s["transaction_date"])
@@ -262,16 +251,15 @@ def _scenario_2(
 
     merged = gl_s.merge(
         sub_s,
-        on=["Vendor_Normalized", "_ak"],
+        on=["Vendor_Normalized", "_ak", "entity"],
         suffixes=("_gl", "_sub"),
     )
 
     if merged.empty:
         return [], set(), set()
 
-    # Date filter using pre-computed integer ordinals — pure vectorised subtraction
     merged = merged[
-        (merged["_dord_gl"] - merged["_dord_sub"]).abs() <= DATE_TOLERANCE_DAYS
+        (merged["_dord_gl"] - merged["_dord_sub"]).abs() <= DATE_TOLERANCE_NARROW
     ]
 
     gl_col  = "gl_id_gl"  if "gl_id_gl"  in merged.columns else "gl_id"
@@ -284,9 +272,11 @@ def _scenario_3(
     gl_pool: pd.DataFrame, sub_pool: pd.DataFrame
 ) -> Tuple[List[MatchRecord], Set[str], Set[str]]:
     """
-    Amount + Entity match with date tolerance ±60 days (no vendor constraint).
+    Vendor + Amount + Entity match with wide date tolerance ±60 days.
 
-    Date ordinals are pre-computed on each pool (N+M operations).
+    Identical join criteria to Scenario 2 but accepts a wider date window,
+    catching late-posted or accrual-reversed transactions. Records that
+    already matched within ±30 days are excluded (consumed by Scenario 2).
     """
     if gl_pool.empty or sub_pool.empty:
         return [], set(), set()
@@ -303,154 +293,20 @@ def _scenario_3(
 
     merged = gl_s.merge(
         sub_s,
-        on=["_ak", "entity"],
+        on=["Vendor_Normalized", "_ak", "entity"],
         suffixes=("_gl", "_sub"),
     )
 
     if merged.empty:
         return [], set(), set()
 
-    merged = merged[
-        (merged["_dord_gl"] - merged["_dord_sub"]).abs() <= DATE_TOLERANCE_DAYS
-    ]
+    date_gap = (merged["_dord_gl"] - merged["_dord_sub"]).abs()
+    merged = merged[date_gap <= DATE_TOLERANCE_WIDE]
 
     gl_col  = "gl_id_gl"  if "gl_id_gl"  in merged.columns else "gl_id"
     sub_col = "subledger_id_sub" if "subledger_id_sub" in merged.columns else "subledger_id"
 
     return _greedy_1to1(merged, gl_col, sub_col, 3)
-
-
-def _scenario_4(
-    gl_pool: pd.DataFrame, sub_pool: pd.DataFrame
-) -> Tuple[List[MatchRecord], Set[str], Set[str]]:
-    """
-    Deterministic grouping — exact sum equality, bounded by MAX_GROUP_SIZE (pairs only).
-
-    Only runs when both pools are ≤ SCENARIO_4_POOL_LIMIT records (enforced by the
-    caller in run_deterministic_matching()).
-
-    N:1: combinations of 2–MAX_GROUP_SIZE GL rows (same entity) that sum to one Sub amount.
-    1:N: one GL row whose amount equals the sum of 2–MAX_GROUP_SIZE Sub rows (same entity).
-
-    Key efficiency improvements over the naïve approach:
-      1. Amount pre-filter: only candidates with amount ≤ target can contribute to a sum.
-         This reduces C(n, k) to C(m, k) where m << n for typical distributions.
-      2. Infeasibility guard: if sum(all_candidates) < target, skip immediately.
-      3. Mutable availability sets: O(1) discard/difference_update instead of
-         rebuilding a filter list from scratch on every outer-loop iteration.
-      4. Vectorised dict construction: dict(zip(...)) instead of iterrows().
-    """
-    if gl_pool.empty or sub_pool.empty:
-        return [], set(), set()
-
-    matches: List[MatchRecord] = []
-    used_gl: Set[str] = set()
-    used_sub: Set[str] = set()
-
-    entities = sorted(
-        set(gl_pool["entity"].dropna().unique()) &
-        set(sub_pool["entity"].dropna().unique())
-    )
-
-    for entity in entities:
-        gl_e  = gl_pool[gl_pool["entity"] == entity].copy()
-        sub_e = sub_pool[sub_pool["entity"] == entity].copy()
-
-        gl_e["_ak"]  = _normalise_amount(gl_e["amount"])
-        sub_e["_ak"] = _normalise_amount(sub_e["amount"])
-
-        # Vectorised dict construction — 10–100× faster than iterrows for large pools
-        gl_amount_map  = dict(zip(gl_e["gl_id"].astype(str),        gl_e["_ak"]))
-        sub_amount_map = dict(zip(sub_e["subledger_id"].astype(str), sub_e["_ak"]))
-
-        # Mutable availability sets — start with globally-consumed IDs already excluded
-        avail_gl  = set(gl_amount_map.keys()) - used_gl
-        avail_sub = set(sub_amount_map.keys()) - used_sub
-
-        # ── N:1: multiple GL rows → one Sub row ──────────────────────────────
-        for sub_id in list(avail_sub):          # snapshot; avail_sub mutates below
-            if sub_id not in avail_sub:         # may have been consumed in this loop
-                continue
-
-            sub_amount = sub_amount_map[sub_id]
-
-            # Pre-filter: only GL records with amount ≤ sub_amount can contribute.
-            # Sort descending so larger-value combinations are tried first (shorter
-            # paths to the target sum → combinatorial tree pruned earlier).
-            candidates = sorted(
-                (g for g in avail_gl if gl_amount_map[g] <= sub_amount),
-                key=lambda g: -gl_amount_map[g],
-            )
-
-            # Infeasibility guard: if all candidates together can't reach the target,
-            # no combination can — skip without touching the combinations iterator.
-            if not candidates:
-                continue
-            if round(sum(gl_amount_map[g] for g in candidates), 2) < sub_amount:
-                continue
-
-            found = False
-            for size in range(2, min(MAX_GROUP_SIZE + 1, len(candidates) + 1)):
-                if found:
-                    break
-                for combo in combinations(candidates, size):
-                    if round(sum(gl_amount_map[g] for g in combo), 2) == sub_amount:
-                        avail_sub.discard(sub_id)
-                        avail_gl.difference_update(combo)
-                        used_sub.add(sub_id)
-                        used_gl.update(combo)
-                        matches.append(MatchRecord(
-                            match_id=str(uuid.uuid4()),
-                            record_ids_A=list(combo),
-                            record_ids_B=[sub_id],
-                            scenario_id=4,
-                            scenario_description=_SCENARIO_META[4]["description"],
-                            confidence_score=_SCENARIO_META[4]["confidence_score"],
-                            grouping_type="many_to_one",
-                        ))
-                        found = True
-                        break
-
-        # ── 1:N: one GL row → multiple Sub rows ──────────────────────────────
-        for gl_id in list(avail_gl):            # snapshot; avail_gl mutates below
-            if gl_id not in avail_gl:
-                continue
-
-            gl_amount = gl_amount_map[gl_id]
-
-            candidates = sorted(
-                (s for s in avail_sub if sub_amount_map[s] <= gl_amount),
-                key=lambda s: -sub_amount_map[s],
-            )
-
-            if not candidates:
-                continue
-            if round(sum(sub_amount_map[s] for s in candidates), 2) < gl_amount:
-                continue
-
-            found = False
-            for size in range(2, min(MAX_GROUP_SIZE + 1, len(candidates) + 1)):
-                if found:
-                    break
-                for combo in combinations(candidates, size):
-                    if round(sum(sub_amount_map[s] for s in combo), 2) == gl_amount:
-                        avail_gl.discard(gl_id)
-                        avail_sub.difference_update(combo)
-                        used_gl.add(gl_id)
-                        used_sub.update(combo)
-                        matches.append(MatchRecord(
-                            match_id=str(uuid.uuid4()),
-                            record_ids_A=[gl_id],
-                            record_ids_B=list(combo),
-                            scenario_id=4,
-                            scenario_description=_SCENARIO_META[4]["description"],
-                            confidence_score=_SCENARIO_META[4]["confidence_score"],
-                            grouping_type="one_to_many",
-                        ))
-                        found = True
-                        break
-
-    return matches, used_gl, used_sub
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +349,7 @@ def run_deterministic_matching(
     all_used_gl:  Set[str] = set()
     all_used_sub: Set[str] = set()
     all_matches:  List[MatchRecord] = []
-    scenario_counts: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0}
+    scenario_counts: Dict[int, int] = {1: 0, 2: 0, 3: 0}
 
     logger.info(
         "Deterministic matching started: GL=%d rows, Sub=%d rows",
@@ -505,22 +361,9 @@ def run_deterministic_matching(
         (_scenario_1, 1),
         (_scenario_2, 2),
         (_scenario_3, 3),
-        (_scenario_4, 4),
     ]:
         gl_remaining  = _filter_pool(gl_df,  "gl_id",        all_used_gl)
         sub_remaining = _filter_pool(sub_df, "subledger_id", all_used_sub)
-
-        # Scenario 4 is combinatorial — skip when the residual pool is too large.
-        if scenario_num == 4 and (
-            len(gl_remaining) > SCENARIO_4_POOL_LIMIT
-            or len(sub_remaining) > SCENARIO_4_POOL_LIMIT
-        ):
-            logger.info(
-                "Scenario 4 skipped: GL pool=%d, Sub pool=%d exceed limit=%d",
-                len(gl_remaining), len(sub_remaining), SCENARIO_4_POOL_LIMIT,
-            )
-            scenario_counts[4] = 0
-            continue
 
         logger.info(
             "Scenario %d starting: GL pool=%d, Sub pool=%d",

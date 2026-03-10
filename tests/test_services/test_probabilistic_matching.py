@@ -384,13 +384,25 @@ class TestNToOneMatching:
         assert len(result.residual_sub) == 0
 
     def test_n_to_1_not_accepted_below_threshold(self):
-        """Group that passes amount band but different vendor+entity → blocked/below threshold."""
+        """Group that passes amount band but different entity → blocked by entity grouping."""
         result = _run(
             [
                 _gl_row(gl_id="GL001", vendor="vendor alpha", amount=60.0, entity="CORP_A"),
                 _gl_row(gl_id="GL002", vendor="vendor alpha", amount=40.0, entity="CORP_A"),
             ],
             [_sub_row(sub_id="SUB001", vendor="vendor alpha", amount=100.0, entity="CORP_B")],
+        )
+        assert len(result.matches) == 0
+
+    def test_n_to_1_requires_vendor_similarity(self):
+        """GL rows with vendor similarity below VENDOR_SIM_MIN are filtered before combination."""
+        result = _run(
+            [
+                _gl_row(gl_id="GL001", vendor="aardvark inc", amount=60.0),
+                _gl_row(gl_id="GL002", vendor="aardvark inc", amount=40.0),
+            ],
+            [_sub_row(sub_id="SUB001", vendor="zyxwvut llc", amount=100.0)],
+            threshold=0.0,  # Even at zero threshold: vendor pre-filter must block candidates
         )
         assert len(result.matches) == 0
 
@@ -599,7 +611,7 @@ class TestResultShape:
         assert result.threshold_used == 0.75
 
     def test_weights_stored(self):
-        custom = {"vendor": 0.5, "amount": 0.3, "date": 0.1, "entity": 0.1}
+        custom = {"vendor": 0.5, "amount": 0.3, "date": 0.2}
         result = _run([_gl_row()], [_sub_row()], weights=custom)
         assert result.weights_used == custom
 

@@ -20,10 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { FileDropzone, type UploadStatus } from '@/components/upload/FileDropzone'
-import {
-  ColumnHistogramHover,
-  type HistogramBucket,
-} from '@/components/upload/ColumnHistogramHover'
+import { ColumnHistogramHover } from '@/components/upload/ColumnHistogramHover'
 import {
   RECON_SESSION_ID_KEY,
   startSession,
@@ -32,6 +29,7 @@ import {
   getProfile,
   runPreprocess,
   getPreprocess,
+  applyVendorOverrides,
   runDeterministic,
   metricsToFileProfile,
   ApiError,
@@ -46,8 +44,114 @@ type NormEntry = {
   match_source: string
 }
 
-function toHistogramBuckets(buckets?: { label: string; count: number }[]): HistogramBucket[] {
-  return buckets ?? []
+// One-sentence descriptions shown in column hover tooltips
+const COLUMN_DESCRIPTIONS: Record<string, string> = {
+  gl_id:            'Unique identifier for each General Ledger transaction record.',
+  subledger_id:     'Unique identifier for each Subledger transaction record.',
+  entity:           'Business or legal entity associated with the transaction.',
+  account_code:     'General Ledger account code used to classify the transaction.',
+  vendor_name:      'Name of the vendor or supplier involved in the transaction.',
+  transaction_date: 'Date on which the transaction was recorded or posted.',
+  amount:           'Transaction monetary amount in the specified currency.',
+  currency:         'ISO 4217 currency code for the transaction amount.',
+  exception_flag:   'Indicates whether this transaction has been flagged as an exception requiring review.',
+  reference_id:     'Reference identifier linking this Subledger record to its General Ledger counterpart.',
+  materiality_threshold: 'Dollar threshold above which a difference is considered material.',
+}
+
+function fmt(val: number | null | undefined, decimals = 2): string {
+  if (val == null) return '—'
+  return val.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+}
+
+function DataDescriptionSection({ label, profile }: { label: string; profile: FileProfile }) {
+  return (
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold text-foreground">{label}</h3>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-lg border bg-muted/30 p-6">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Row Count</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">{profile.row_count.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-6">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Unique Vendors</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">{profile.unique_vendors}</p>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-6">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Date Range</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
+            {profile.date_from} – {profile.date_to}
+          </p>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-6">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Amount</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">
+            ${profile.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </p>
+        </div>
+      </div>
+      {profile.column_stats.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Data Description</p>
+          <p className="mb-2 text-xs text-muted-foreground">Hover a column name for description and distribution.</p>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Column</TableHead>
+                  <TableHead>Data Type</TableHead>
+                  <TableHead className="text-right">Count Unique</TableHead>
+                  <TableHead className="text-right">Null Count</TableHead>
+                  <TableHead className="text-right">Null %</TableHead>
+                  {/* Numeric stats */}
+                  <TableHead className="text-right">Min</TableHead>
+                  <TableHead className="text-right">Max</TableHead>
+                  <TableHead className="text-right">Avg</TableHead>
+                  <TableHead className="text-right">Std Dev</TableHead>
+                  <TableHead className="text-right">Sum</TableHead>
+                  <TableHead className="text-right">Median</TableHead>
+                  {/* String stats */}
+                  <TableHead className="text-right">Max Len</TableHead>
+                  <TableHead className="text-right">Min Len</TableHead>
+                  <TableHead className="text-right">Blanks</TableHead>
+                  <TableHead>Mode</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {profile.column_stats.map((col) => (
+                  <TableRow key={col.name}>
+                    <TableCell className="font-mono text-sm">
+                      <ColumnHistogramHover
+                        columnName={col.name}
+                        buckets={col.histogram ?? []}
+                        description={COLUMN_DESCRIPTIONS[col.name]}
+                      />
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground capitalize">{col.data_type}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm">{col.unique_count.toLocaleString()}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm">{col.null_count.toLocaleString()}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm">{col.null_pct.toFixed(2)}%</TableCell>
+                    {/* Numeric */}
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'numeric' ? fmt(col.min as number) : col.data_type === 'date' ? String(col.min ?? '—') : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'numeric' ? fmt(col.max as number) : col.data_type === 'date' ? String(col.max ?? '—') : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'numeric' ? fmt(col.mean) : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'numeric' ? fmt(col.std) : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'numeric' ? fmt(col.sum) : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'numeric' ? fmt(col.median) : '—'}</TableCell>
+                    {/* String */}
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'string' ? (col.max_len ?? '—') : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'string' ? (col.min_len ?? '—') : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums text-sm text-muted-foreground">{col.data_type === 'string' ? (col.blank_count ?? '—') : '—'}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[120px] truncate" title={col.mode ?? undefined}>{col.data_type === 'string' ? (col.mode ?? '—') : '—'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function LoadFiles() {
@@ -55,13 +159,13 @@ export function LoadFiles() {
   const [sessionId, setSessionId] = useState<string | null>(() =>
     localStorage.getItem(RECON_SESSION_ID_KEY)
   )
-  const [coaFile, setCoaFile] = useState<File | null>(null)
   const [glFile, setGlFile] = useState<File | null>(null)
   const [slFile, setSlFile] = useState<File | null>(null)
-  const [coaStatus, setCoaStatus] = useState<UploadStatus>('idle')
   const [glStatus, setGlStatus] = useState<UploadStatus>('idle')
   const [slStatus, setSlStatus] = useState<UploadStatus>('idle')
   const [vendorNormMap, setVendorNormMap] = useState<NormEntry[]>([])
+  const [unmatchedSubVendors, setUnmatchedSubVendors] = useState<string[]>([])
+  const [unmatchedSubNormalized, setUnmatchedSubNormalized] = useState<Record<string, string>>({})
   const [vendorOverrides, setVendorOverrides] = useState<Record<string, string>>({})
   const [isRunning, setIsRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
@@ -71,7 +175,7 @@ export function LoadFiles() {
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
 
-  const hasAllFiles = coaFile != null && glFile != null && slFile != null
+  const hasAllFiles = glFile != null && slFile != null
 
   // Ensure we have a session on mount
   useEffect(() => {
@@ -92,19 +196,18 @@ export function LoadFiles() {
     return () => { cancelled = true }
   }, [])
 
-  // When all three files are selected, upload then profile
+  // Called by "Process Data" button — upload, profile, then preprocess
   const doUploadAndProfile = useCallback(async () => {
-    if (!sessionId || !coaFile || !glFile || !slFile) return
+    if (!sessionId || !glFile || !slFile) return
     setProfileLoading(true)
     setProfileError(null)
-    setCoaStatus('uploading')
     setGlStatus('uploading')
     setSlStatus('uploading')
     try {
       // Use a local session ID so we can swap it if the backend restarted (404).
       let sid = sessionId
       try {
-        await uploadFiles(sid, coaFile, glFile, slFile)
+        await uploadFiles(sid, glFile, slFile)
       } catch (uploadErr) {
         if (uploadErr instanceof ApiError && uploadErr.status === 409) {
           // Already uploaded — continue
@@ -114,12 +217,11 @@ export function LoadFiles() {
           sid = newSession.session_id
           localStorage.setItem(RECON_SESSION_ID_KEY, sid)
           setSessionId(sid)
-          await uploadFiles(sid, coaFile, glFile, slFile)
+          await uploadFiles(sid, glFile, slFile)
         } else {
           throw uploadErr
         }
       }
-      setCoaStatus('done')
       setGlStatus('done')
       setSlStatus('done')
       let profileRes: Awaited<ReturnType<typeof runProfile>>
@@ -141,49 +243,97 @@ export function LoadFiles() {
 
       // Run preprocessing to get vendor normalization map
       let normMap: NormEntry[] = []
+      let unmatchedSubs: string[] = []
+      let unmatchedNorm: Record<string, string> = {}
       try {
         const preprocessRes = await runPreprocess(sid)
         normMap = (preprocessRes.vendor_normalization_map ?? []) as NormEntry[]
+        unmatchedSubs = preprocessRes.unmatched_sub_vendors ?? []
+        unmatchedNorm = preprocessRes.unmatched_sub_normalized ?? {}
       } catch (preprocessErr) {
         if (preprocessErr instanceof ApiError && preprocessErr.status === 409) {
           // Already preprocessed — fetch stored map via GET endpoint
           try {
             const stored = await getPreprocess(sid)
             normMap = (stored.vendor_normalization_map ?? []) as NormEntry[]
+            unmatchedSubs = stored.unmatched_sub_vendors ?? []
+            unmatchedNorm = stored.unmatched_sub_normalized ?? {}
           } catch { normMap = [] }
         }
         // Other errors: silently skip — vendor table shows empty, matching still works
       }
       setVendorNormMap(normMap)
+      setUnmatchedSubVendors(unmatchedSubs)
+      setUnmatchedSubNormalized(unmatchedNorm)
+      // Pre-populate overrides with normalized names for unmatched sub vendors
+      if (Object.keys(unmatchedNorm).length > 0) {
+        setVendorOverrides((prev) => {
+          const next = { ...prev }
+          for (const [vendor, normalized] of Object.entries(unmatchedNorm)) {
+            const key = `__sub__${vendor}`
+            if (!(key in next)) {
+              next[key] = normalized
+            }
+          }
+          return next
+        })
+      }
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Upload or profile failed'
-      setProfileError(message)
-      setCoaStatus(coaFile ? 'done' : 'idle')
+      let msg = err instanceof Error ? err.message : 'Upload or profile failed'
+      if (err instanceof ApiError && err.body != null) {
+        const detail = (err.body as { detail?: unknown }).detail
+        if (Array.isArray(detail)) {
+          const parts = detail.map((d: { file_key?: string; missing_columns?: string[]; column_errors?: Array<{ column: string; expected_dtype: string; sample_bad_values: string[] }> }) => {
+            const file = d.file_key ?? 'file'
+            if (d.missing_columns?.length) {
+              return `${file}: Missing columns ${d.missing_columns.join(', ')}`
+            }
+            if (d.column_errors?.length) {
+              return d.column_errors.map((e: { column: string; expected_dtype: string; sample_bad_values: string[] }) =>
+                `${file} column '${e.column}' expects ${e.expected_dtype}; invalid samples: ${(e.sample_bad_values ?? []).slice(0, 3).join(', ')}`
+              ).join(' | ')
+            }
+            return `${file}: validation failed`
+          })
+          msg = parts.length ? `${msg}\n${parts.join('\n')}` : msg
+        } else if (typeof detail === 'string') {
+          msg = `${msg}\n${detail}`
+        }
+      }
+      const hint =
+        msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('network')
+          ? ' — Is the backend running? Start it with: uvicorn src.api.main:app --reload --port 8000'
+          : ''
+      setProfileError(msg + hint)
       setGlStatus(glFile ? 'done' : 'idle')
       setSlStatus(slFile ? 'done' : 'idle')
     } finally {
       setProfileLoading(false)
     }
-  }, [sessionId, coaFile, glFile, slFile])
+  }, [sessionId, glFile, slFile])
 
+  // Reset profiling state when files are removed
   useEffect(() => {
-    if (!hasAllFiles || !sessionId) {
+    if (!hasAllFiles) {
       setProfileResponse(null)
       setGlProfile(null)
       setSlProfile(null)
       setProfileError(null)
       setVendorNormMap([])
-      return
+      setUnmatchedSubVendors([])
+      setUnmatchedSubNormalized({})
     }
-    doUploadAndProfile()
-  }, [hasAllFiles, sessionId, doUploadAndProfile])
+  }, [hasAllFiles])
 
   const handleRunMatching = async () => {
-    if (!sessionId || !hasAllFiles) return
+    if (!sessionId || !profileResponse) return
     setRunError(null)
     setIsRunning(true)
     try {
+      // Apply manual vendor overrides before matching so they are used for matching and output
+      if (Object.keys(vendorOverrides).length > 0) {
+        await applyVendorOverrides(sessionId, vendorOverrides)
+      }
       try { await runDeterministic(sessionId) } catch (e) {
         if (!(e instanceof ApiError && e.status === 409)) throw e
       }
@@ -195,11 +345,6 @@ export function LoadFiles() {
     } finally {
       setIsRunning(false)
     }
-  }
-
-  const handleCoaChange = (file: File | null) => {
-    setCoaFile(file)
-    setCoaStatus(file ? 'done' : 'idle')
   }
 
   const handleGlChange = (file: File | null) => {
@@ -217,28 +362,10 @@ export function LoadFiles() {
   }
 
   return (
-    <PageLayout title="Load Files" description="Upload Chart of Accounts, GL, and subledger files for reconciliation.">
-      <section className="grid gap-6 md:grid-cols-3">
+    <PageLayout title="Load Files" description="Upload your General Ledger and Subledger files, then click Process Data.">
+      <section className="grid gap-6 md:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>Chart of Accounts</CardTitle>
-            <CardDescription>Upload Chart_of_Accounts.csv.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FileDropzone
-              label="Chart of Accounts"
-              value={coaFile}
-              onChange={handleCoaChange}
-              status={coaStatus}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>General Ledger Upload</CardTitle>
-            <CardDescription>Upload GL.csv for reconciliation.</CardDescription>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <FileDropzone
               label="General Ledger"
               value={glFile}
@@ -248,11 +375,7 @@ export function LoadFiles() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader>
-            <CardTitle>Subledger Upload</CardTitle>
-            <CardDescription>Upload Subledger.csv for reconciliation.</CardDescription>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <FileDropzone
               label="Subledger"
               value={slFile}
@@ -263,8 +386,17 @@ export function LoadFiles() {
         </Card>
       </section>
 
-      {/* Data Profiling — runs after all three files are uploaded */}
-      {hasAllFiles && (
+      {/* Process Data button — shown before profiling starts */}
+      {hasAllFiles && !profileResponse && !profileLoading && (
+        <div>
+          <Button size="lg" onClick={doUploadAndProfile}>
+            Process Data
+          </Button>
+        </div>
+      )}
+
+      {/* Data Profiling — shown while loading, after complete, or on error (so error is visible) */}
+      {(profileLoading || profileResponse || profileError) && (
         <section>
           <Card>
             <CardHeader>
@@ -279,7 +411,7 @@ export function LoadFiles() {
             </CardHeader>
             <CardContent className="space-y-6">
               {profileError && (
-                <p className="text-sm text-destructive">{profileError}</p>
+                <p className="text-sm text-destructive whitespace-pre-line">{profileError}</p>
               )}
               {profileLoading && !profileResponse && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -393,164 +525,18 @@ export function LoadFiles() {
                 </div>
               )}
               {glProfile && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-foreground">General Ledger</h3>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Row Count</p>
-                      <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">{glProfile.row_count.toLocaleString()}</p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Unique Vendors</p>
-                      <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">{glProfile.unique_vendors}</p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Date Range</p>
-                      <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
-                        {glProfile.date_from} – {glProfile.date_to}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Amount</p>
-                      <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">
-                        ${glProfile.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </p>
-                    </div>
-                  </div>
-                    <div>
-                    <p className="mb-2 text-xs text-muted-foreground">Hover a column name to see distribution.</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Column</TableHead>
-                          <TableHead>Type</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {glProfile.columns.map((col) => (
-                          <TableRow key={col.name}>
-                            <TableCell>
-                              <ColumnHistogramHover
-                                columnName={col.name}
-                                buckets={toHistogramBuckets(col.buckets)}
-                              />
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{col.type}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {profileResponse?.metrics?.files?.gl && typeof (profileResponse.metrics.files.gl as Record<string, unknown>).null_counts === 'object' && (
-                    <div>
-                      <p className="mb-2 text-xs text-muted-foreground">Null counts by column</p>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Column</TableHead>
-                            <TableHead>Null count</TableHead>
-                            <TableHead>Null %</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {Object.entries((profileResponse.metrics.files.gl as Record<string, Record<string, number>>).null_counts ?? {}).map(([col, count]) => (
-                            <TableRow key={col}>
-                              <TableCell className="font-mono text-sm">{col}</TableCell>
-                              <TableCell className="tabular-nums">{count.toLocaleString()}</TableCell>
-                              <TableCell className="tabular-nums">
-                                {glProfile.row_count > 0 ? ((count / glProfile.row_count) * 100).toFixed(2) : '0'}%
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </div>
+                <DataDescriptionSection label="General Ledger" profile={glProfile} />
               )}
               {slProfile && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-foreground">Subledger</h3>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Row Count</p>
-                      <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">{slProfile.row_count.toLocaleString()}</p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Unique Vendors</p>
-                      <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">{slProfile.unique_vendors}</p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Date Range</p>
-                      <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
-                        {slProfile.date_from} – {slProfile.date_to}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/30 p-6">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Amount</p>
-                      <p className="mt-1 text-3xl font-bold tabular-nums text-foreground">
-                        ${slProfile.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </p>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="mb-2 text-xs text-muted-foreground">Hover a column name to see distribution.</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Column</TableHead>
-                          <TableHead>Type</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {slProfile.columns.map((col) => (
-                          <TableRow key={col.name}>
-                            <TableCell>
-                              <ColumnHistogramHover
-                                columnName={col.name}
-                                buckets={toHistogramBuckets(col.buckets)}
-                              />
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{col.type}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {profileResponse?.metrics?.files?.subledger && typeof (profileResponse.metrics.files.subledger as Record<string, unknown>).null_counts === 'object' && (
-                    <div>
-                      <p className="mb-2 text-xs text-muted-foreground">Null counts by column</p>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Column</TableHead>
-                            <TableHead>Null count</TableHead>
-                            <TableHead>Null %</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {Object.entries((profileResponse.metrics.files.subledger as Record<string, Record<string, number>>).null_counts ?? {}).map(([col, count]) => (
-                            <TableRow key={col}>
-                              <TableCell className="font-mono text-sm">{col}</TableCell>
-                              <TableCell className="tabular-nums">{count.toLocaleString()}</TableCell>
-                              <TableCell className="tabular-nums">
-                                {slProfile.row_count > 0 ? ((count / slProfile.row_count) * 100).toFixed(2) : '0'}%
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </div>
+                <DataDescriptionSection label="Subledger" profile={slProfile} />
               )}
             </CardContent>
           </Card>
         </section>
       )}
 
-      {/* Vendor Preprocessing — populated after preprocessing runs */}
-      {hasAllFiles && (
+      {/* Vendor Preprocessing — shown after processing runs (or while loading) */}
+      {(profileLoading || profileResponse || profileError) && (
         <section>
           <Card>
             <CardHeader>
@@ -586,25 +572,48 @@ export function LoadFiles() {
                     <TableBody>
                       {vendorNormMap.map((entry) => {
                         const key = entry.original_vendor
+                        const isUnmatched = !entry.matched_to
                         const effective = vendorOverrides[key] || entry.normalized_vendor
                         return (
-                          <TableRow key={key}>
+                          <TableRow key={key} className={isUnmatched ? 'bg-amber-50 dark:bg-amber-950/20' : undefined}>
                             <TableCell className="font-mono text-sm text-muted-foreground">
                               {entry.original_vendor}
                             </TableCell>
-                            <TableCell className="font-mono text-sm text-muted-foreground">
+                            <TableCell className={`font-mono text-sm ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
                               {entry.matched_to ?? '—'}
                             </TableCell>
-                            <TableCell className="font-mono text-sm font-medium">
+                            <TableCell className={`font-mono text-sm font-medium ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : ''}`}>
                               {effective}
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground capitalize">
-                              {entry.match_source}
+                            <TableCell className={`text-xs capitalize ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
+                              {isUnmatched ? 'unmatched' : entry.match_source}
                             </TableCell>
                             <TableCell>
                               <Input
                                 placeholder={entry.normalized_vendor}
                                 value={vendorOverrides[key] ?? ''}
+                                onChange={(e) => handleVendorOverride(key, e.target.value)}
+                                className="h-8 text-sm"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                      {unmatchedSubVendors.map((vendor) => {
+                        const key = `__sub__${vendor}`
+                        const normalizedName = unmatchedSubNormalized[vendor] ?? vendor
+                        return (
+                          <TableRow key={key} className="bg-amber-50 dark:bg-amber-950/20">
+                            <TableCell className="font-mono text-sm text-amber-700 dark:text-amber-400">—</TableCell>
+                            <TableCell className="font-mono text-sm text-muted-foreground">{vendor}</TableCell>
+                            <TableCell className="font-mono text-sm text-amber-700 dark:text-amber-400">
+                              {normalizedName !== vendor ? normalizedName : '(unmatched)'}
+                            </TableCell>
+                            <TableCell className="text-xs text-amber-700 dark:text-amber-400">unmatched</TableCell>
+                            <TableCell>
+                              <Input
+                                placeholder={normalizedName}
+                                value={vendorOverrides[key] ?? normalizedName}
                                 onChange={(e) => handleVendorOverride(key, e.target.value)}
                                 className="h-8 text-sm"
                               />
@@ -621,36 +630,33 @@ export function LoadFiles() {
         </section>
       )}
 
-      {/* Footer CTA */}
-      <footer className="flex flex-col items-start gap-4 border-t pt-6">
-        <Button
-          size="lg"
-          disabled={!hasAllFiles || isRunning}
-          onClick={handleRunMatching}
-        >
-          {isRunning ? (
-            <>
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Starting…
-            </>
-          ) : (
-            <>
-              Run Matching
-              <ArrowRight className="size-4" aria-hidden />
-            </>
+      {/* Footer CTA — shown only after processing completes */}
+      {profileResponse && (
+        <footer className="flex flex-col items-start gap-4 border-t pt-6">
+          <Button
+            size="lg"
+            disabled={isRunning}
+            onClick={handleRunMatching}
+          >
+            {isRunning ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Starting…
+              </>
+            ) : (
+              <>
+                Run Matching
+                <ArrowRight className="size-4" aria-hidden />
+              </>
+            )}
+          </Button>
+          {runError && (
+            <p className="text-sm text-destructive" role="alert">
+              {runError}
+            </p>
           )}
-        </Button>
-        {runError && (
-          <p className="text-sm text-destructive" role="alert">
-            {runError}
-          </p>
-        )}
-        {!hasAllFiles && (
-          <p className="text-sm text-muted-foreground">
-            Upload Chart of Accounts, General Ledger, and Subledger files to continue.
-          </p>
-        )}
-      </footer>
+        </footer>
+      )}
     </PageLayout>
   )
 }

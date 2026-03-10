@@ -9,22 +9,20 @@ Tests every explicit requirement:
   - export_dir exists on disk after run_export
 
   [File set]
-  - Exactly 6 files generated
-  - Expected filenames: final_matches.csv, residual_unmatched_gl.csv,
-    residual_unmatched_sub.csv, rejected_matches.csv, audit_log.csv,
-    reconciliation_report.pdf
+  - Exactly 15 files generated
+  - Expected filenames present (see _EXPECTED_FILENAMES)
   - All files exist on disk
 
   [File metadata]
   - sha256 is 64 hex characters
-  - size_bytes > 0 for each file
+  - size_bytes > 0 for each file when inputs provided
   - filename matches os.path.basename(path)
 
-  [CSV content — final_matches.csv]
-  - Row count == len(all_matches)
+  [CSV content — final_results.csv]
+  - Row count == total accepted match count (1 row per 1:1 match)
   - Contains match_id, source_layer, user_status columns
-  - source_layer detected correctly (deterministic/probabilistic/ai)
-  - Empty all_matches → header-only CSV (0 data rows)
+  - source_layer set correctly per layer
+  - Empty accepted matches → header-only CSV (0 data rows)
 
   [CSV content — residual files]
   - residual_unmatched_gl.csv rows == len(residual_gl)
@@ -32,15 +30,20 @@ Tests every explicit requirement:
   - Empty residual → header-only or empty file
 
   [CSV content — rejected_matches.csv]
-  - Row count == len(rejected)
+  - Row count == len(rejected) for 1:1 matches
   - Empty rejected → 0 data rows
 
   [CSV content — audit_log.csv]
-  - Audit log includes all_matches entries
+  - Audit log includes accepted matches
   - Audit log includes rejected entries
   - Audit log includes pending prob entries
   - Audit log includes pending ai_suggested entries
   - Row count == accepted + pending_prob + pending_ai + rejected
+
+  [CSV content — process log files]
+  - process_log_run.csv has 1 row
+  - process_log_steps.csv has 4 rows
+  - process_log_ai.csv has 1 row
 
   [PDF]
   - reconciliation_report.pdf exists and size_bytes > 0
@@ -53,8 +56,8 @@ Tests every explicit requirement:
   - detect_source_layer: none of the above → 'unknown'
 
   [Edge cases]
-  - All inputs empty → 6 files, 0 data rows in CSVs, non-empty PDF
-  - Custom export_dir respected (no new tempdir created)
+  - All inputs empty → 15 files, 0 data rows in CSVs, non-empty PDF
+  - Custom export_dir respected
 """
 
 import hashlib
@@ -127,40 +130,59 @@ def _sub_df(*ids) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Run helper
+# Run helper — mirrors the new run_export signature
 # ---------------------------------------------------------------------------
 
 def _run(
-    all_matches=None,
+    det_matches=None,
     prob_matches=None,
+    ai_final=None,
     ai_suggested=None,
     rejected=None,
     residual_gl=None,
     residual_sub=None,
     ai_meta=None,
     consolidation=None,
+    raw_data=None,
+    clean_data=None,
+    snapshots=None,
+    matching=None,
     tmp_path=None,
 ) -> ExportManifest:
     return run_export(
-        all_matches=   all_matches   or [],
+        det_matches=   det_matches   or [],
         prob_matches=  prob_matches  or [],
+        ai_final=      ai_final      or [],
         ai_suggested=  ai_suggested  or [],
         rejected=      rejected      or [],
         residual_gl=   residual_gl   if residual_gl  is not None else pd.DataFrame(),
         residual_sub=  residual_sub  if residual_sub is not None else pd.DataFrame(),
         ai_meta=       ai_meta       or {},
         consolidation= consolidation or {},
+        raw_data=      raw_data      or {},
+        clean_data=    clean_data    or {},
+        snapshots=     snapshots     or {},
+        matching=      matching      or {},
         session_id=    "test-session-id",
         export_dir=    str(tmp_path) if tmp_path is not None else None,
     )
 
 
 _EXPECTED_FILENAMES = {
-    "final_matches.csv",
+    "uploaded_gl.csv",
+    "uploaded_subledger.csv",
+    "preprocessing_output.csv",
+    "deterministic_matches.csv",
+    "probabilistic_matches.csv",
+    "ai_matches.csv",
+    "final_results.csv",
     "residual_unmatched_gl.csv",
     "residual_unmatched_sub.csv",
     "rejected_matches.csv",
     "audit_log.csv",
+    "process_log_run.csv",
+    "process_log_steps.csv",
+    "process_log_ai.csv",
     "reconciliation_report.pdf",
 }
 
@@ -180,7 +202,6 @@ class TestManifestStructure:
 
     def test_exported_at_is_iso_string(self, tmp_path):
         m = _run(tmp_path=tmp_path)
-        # Should contain a 'T' separator and '+' or 'Z' timezone
         assert "T" in m.exported_at
 
     def test_export_dir_exists_on_disk(self, tmp_path):
@@ -193,9 +214,9 @@ class TestManifestStructure:
 # ===========================================================================
 
 class TestFileSet:
-    def test_exactly_six_files(self, tmp_path):
+    def test_exactly_fifteen_files(self, tmp_path):
         m = _run(tmp_path=tmp_path)
-        assert len(m.files) == 6
+        assert len(m.files) == 15
 
     def test_expected_filenames_present(self, tmp_path):
         m = _run(tmp_path=tmp_path)
@@ -217,22 +238,24 @@ class TestFileMetadata:
         m = _run(tmp_path=tmp_path)
         for ef in m.files:
             assert len(ef.sha256) == 64, f"{ef.filename}: sha256 wrong length"
-            int(ef.sha256, 16)  # must parse as hex
+            int(ef.sha256, 16)
 
-    def test_size_bytes_positive(self, tmp_path):
+    def test_size_bytes_positive_when_inputs_provided(self, tmp_path):
         """All files have content when every input has at least one record."""
         m = _run(
-            all_matches=  [_det()],
+            det_matches=  [_det()],
             residual_gl=  _gl_df("GL_R1"),
             residual_sub= _sub_df("S_R1"),
             rejected=     [_prob("P_R1", user_status="rejected")],
+            raw_data=     {"gl": _gl_df("GL1"), "subledger": _sub_df("S1")},
+            clean_data=   {"gl": _gl_df("GL1"), "subledger": _sub_df("S1")},
             tmp_path=tmp_path,
         )
         for ef in m.files:
             assert ef.size_bytes > 0, f"{ef.filename}: size_bytes == 0"
 
     def test_sha256_matches_file_content(self, tmp_path):
-        m = _run(all_matches=[_det()], tmp_path=tmp_path)
+        m = _run(det_matches=[_det()], tmp_path=tmp_path)
         for ef in m.files:
             with open(ef.path, "rb") as fh:
                 computed = hashlib.sha256(fh.read()).hexdigest()
@@ -245,53 +268,73 @@ class TestFileMetadata:
 
 
 # ===========================================================================
-# CSV content — final_matches.csv
+# CSV content — final_results.csv
 # ===========================================================================
 
-class TestFinalMatchesCsv:
+class TestFinalResultsCsv:
     def _get_df(self, manifest) -> pd.DataFrame:
-        path = next(f.path for f in manifest.files if f.filename == "final_matches.csv")
-        return pd.read_csv(path)
+        path = next(f.path for f in manifest.files if f.filename == "final_results.csv")
+        try:
+            return pd.read_csv(path)
+        except Exception:
+            return pd.DataFrame()
 
-    def test_row_count_matches_all_matches(self, tmp_path):
-        m = _run(all_matches=[_det("D1"), _det("D2"), _prob("P1")], tmp_path=tmp_path)
+    def test_row_count_one_per_1to1_match(self, tmp_path):
+        """Three 1:1 accepted matches → 3 rows."""
+        m = _run(
+            det_matches= [_det("D1"), _det("D2")],
+            ai_final=    [_ai("A1")],
+            tmp_path=tmp_path,
+        )
         df = self._get_df(m)
         assert len(df) == 3
 
     def test_contains_match_id_column(self, tmp_path):
-        m = _run(all_matches=[_det()], tmp_path=tmp_path)
+        m = _run(det_matches=[_det()], tmp_path=tmp_path)
         df = self._get_df(m)
         assert "match_id" in df.columns
 
     def test_contains_source_layer_column(self, tmp_path):
-        m = _run(all_matches=[_det()], tmp_path=tmp_path)
+        m = _run(det_matches=[_det()], tmp_path=tmp_path)
         df = self._get_df(m)
         assert "source_layer" in df.columns
 
     def test_contains_user_status_column(self, tmp_path):
-        m = _run(all_matches=[_det()], tmp_path=tmp_path)
+        m = _run(det_matches=[_det()], tmp_path=tmp_path)
         df = self._get_df(m)
         assert "user_status" in df.columns
 
-    def test_deterministic_layer_detected(self, tmp_path):
-        m = _run(all_matches=[_det("D1")], tmp_path=tmp_path)
+    def test_deterministic_layer_correct(self, tmp_path):
+        m = _run(det_matches=[_det("D1")], tmp_path=tmp_path)
         df = self._get_df(m)
         assert df.loc[df["match_id"] == "D1", "source_layer"].iloc[0] == "deterministic"
 
-    def test_probabilistic_layer_detected(self, tmp_path):
-        m = _run(all_matches=[_prob("P1")], tmp_path=tmp_path)
+    def test_probabilistic_layer_correct(self, tmp_path):
+        m = _run(
+            prob_matches=[_prob("P1", user_status="accepted")],
+            tmp_path=tmp_path,
+        )
         df = self._get_df(m)
         assert df.loc[df["match_id"] == "P1", "source_layer"].iloc[0] == "probabilistic"
 
-    def test_ai_layer_detected(self, tmp_path):
-        m = _run(all_matches=[_ai("A1")], tmp_path=tmp_path)
+    def test_ai_layer_correct(self, tmp_path):
+        m = _run(ai_final=[_ai("A1")], tmp_path=tmp_path)
         df = self._get_df(m)
         assert df.loc[df["match_id"] == "A1", "source_layer"].iloc[0] == "ai"
 
-    def test_empty_all_matches_zero_rows(self, tmp_path):
+    def test_empty_accepted_zero_rows(self, tmp_path):
         m = _run(tmp_path=tmp_path)
         df = self._get_df(m)
         assert len(df) == 0
+
+    def test_pending_prob_not_in_final_results(self, tmp_path):
+        """Pending probabilistic matches must not appear in final_results.csv."""
+        m = _run(
+            prob_matches=[_prob("P_PEND", user_status="pending")],
+            tmp_path=tmp_path,
+        )
+        df = self._get_df(m)
+        assert "P_PEND" not in set(df.get("match_id", pd.Series()).astype(str))
 
 
 # ===========================================================================
@@ -334,13 +377,16 @@ class TestResidualCsvs:
 class TestRejectedCsv:
     def _get_df(self, manifest) -> pd.DataFrame:
         path = next(f.path for f in manifest.files if f.filename == "rejected_matches.csv")
-        return pd.read_csv(path)
+        try:
+            return pd.read_csv(path)
+        except Exception:
+            return pd.DataFrame()
 
-    def test_row_count(self, tmp_path):
+    def test_row_count_for_1to1_rejected(self, tmp_path):
         m = _run(
             rejected=[
                 _prob("P_R1", user_status="rejected"),
-                _ai("A_R1", user_status="rejected"),
+                _ai("A_R1",   user_status="rejected"),
             ],
             tmp_path=tmp_path,
         )
@@ -361,7 +407,7 @@ class TestAuditLogCsv:
         return pd.read_csv(path)
 
     def test_includes_accepted_matches(self, tmp_path):
-        m = _run(all_matches=[_det("D1"), _ai("A1")], tmp_path=tmp_path)
+        m = _run(det_matches=[_det("D1")], ai_final=[_ai("A1")], tmp_path=tmp_path)
         df = self._get_df(m)
         ids = set(df["match_id"].astype(str))
         assert "D1" in ids
@@ -384,33 +430,63 @@ class TestAuditLogCsv:
 
     def test_row_count_is_all_sources(self, tmp_path):
         m = _run(
-            all_matches=  [_det("D1")],
+            det_matches=  [_det("D1")],
             prob_matches= [_prob("P1", user_status="accepted"),
                            _prob("P2", user_status="pending")],
             ai_suggested= [_ai("A_PEND", user_status="pending")],
-            rejected=     [_ai("A_REJ", user_status="rejected")],
+            rejected=     [_ai("A_REJ",  user_status="rejected")],
             tmp_path=tmp_path,
         )
         df = self._get_df(m)
-        # D1 (accepted det) + P2 (pending prob) + A_PEND (pending ai) + A_REJ (rejected)
-        # P1 is accepted so in all_matches already via caller; but audit includes all
-        # Note: accepted prob P1 should be in all_matches, and prob_matches contains P1+P2
-        # pending_prob filtered in service = [P2]
-        # audit = all_matches[D1] + pending_prob[P2] + ai_suggested[A_PEND] + rejected[A_REJ]
-        assert len(df) == 4
+        # D1 accepted det + P1 accepted prob + P2 pending prob + A_PEND pending ai + A_REJ rejected
+        assert len(df) == 5
 
     def test_audit_accepted_prob_not_duplicated(self, tmp_path):
-        """Accepted prob is in all_matches; prob_matches accepted is NOT added again."""
+        """Accepted prob is in det_matches/prob_matches accepted; not added again from pending filter."""
         accepted_prob = _prob("P1", user_status="accepted")
         m = _run(
-            all_matches=  [accepted_prob],
-            prob_matches= [accepted_prob],   # same match, user_status=accepted → not pending
+            prob_matches=[accepted_prob],
             tmp_path=tmp_path,
         )
         df = self._get_df(m)
-        # P1 appears only once (from all_matches; pending filter skips it)
         p1_rows = df[df["match_id"] == "P1"]
         assert len(p1_rows) == 1
+
+
+# ===========================================================================
+# CSV content — process log files
+# ===========================================================================
+
+class TestProcessLogCsvs:
+    def _get(self, manifest, filename) -> pd.DataFrame:
+        path = next(f.path for f in manifest.files if f.filename == filename)
+        return pd.read_csv(path)
+
+    def test_process_log_run_has_one_row(self, tmp_path):
+        m = _run(tmp_path=tmp_path)
+        df = self._get(m, "process_log_run.csv")
+        assert len(df) == 1
+
+    def test_process_log_run_has_session_id(self, tmp_path):
+        m = _run(tmp_path=tmp_path)
+        df = self._get(m, "process_log_run.csv")
+        assert "session_id" in df.columns
+
+    def test_process_log_steps_has_four_rows(self, tmp_path):
+        m = _run(tmp_path=tmp_path)
+        df = self._get(m, "process_log_steps.csv")
+        assert len(df) == 4
+
+    def test_process_log_steps_has_expected_step_names(self, tmp_path):
+        m = _run(tmp_path=tmp_path)
+        df = self._get(m, "process_log_steps.csv")
+        names = set(df["step_name"])
+        assert names == {"preprocessing", "deterministic", "probabilistic", "ai"}
+
+    def test_process_log_ai_has_one_row(self, tmp_path):
+        m = _run(tmp_path=tmp_path)
+        df = self._get(m, "process_log_ai.csv")
+        assert len(df) == 1
 
 
 # ===========================================================================
@@ -439,16 +515,11 @@ class TestPdf:
         assert header == b"%PDF-"
 
     def test_pdf_is_non_trivial_size(self, tmp_path):
-        """PDF with real content should be substantially larger than a blank page."""
-        m = run_export(
-            all_matches=[], prob_matches=[], ai_suggested=[], rejected=[],
-            residual_gl=pd.DataFrame(), residual_sub=pd.DataFrame(),
-            ai_meta={}, consolidation={"total_match_count": 0},
-            session_id="UNIQSESSID",
-            export_dir=str(tmp_path),
+        m = _run(
+            consolidation={"total_match_count": 0},
+            tmp_path=tmp_path,
         )
-        ef = next(f for f in m.files if f.filename == "reconciliation_report.pdf")
-        # A real multi-section report should exceed 500 bytes.
+        ef = self._get_pdf_file(m)
         assert ef.size_bytes > 500
 
 
@@ -470,7 +541,6 @@ class TestDetectSourceLayer:
         assert detect_source_layer({"match_id": "X1"}) == "unknown"
 
     def test_scenario_id_takes_precedence(self):
-        """If both scenario_id and final_similarity present → deterministic."""
         assert detect_source_layer({"scenario_id": 1, "final_similarity": 0.9}) == "deterministic"
 
 
@@ -481,7 +551,7 @@ class TestDetectSourceLayer:
 class TestEdgeCases:
     def test_all_empty_no_error(self, tmp_path):
         m = _run(tmp_path=tmp_path)
-        assert len(m.files) == 6
+        assert len(m.files) == 15
 
     def test_custom_export_dir_respected(self, tmp_path):
         m = _run(tmp_path=tmp_path)
@@ -490,23 +560,23 @@ class TestEdgeCases:
     def test_auto_tempdir_created_when_no_dir_given(self):
         """Without export_dir, service creates a temp directory."""
         m = run_export(
-            all_matches=[], prob_matches=[], ai_suggested=[], rejected=[],
+            det_matches=[], prob_matches=[], ai_final=[], ai_suggested=[], rejected=[],
             residual_gl=pd.DataFrame(), residual_sub=pd.DataFrame(),
             ai_meta={}, consolidation={},
+            raw_data={}, clean_data={}, snapshots={}, matching={},
             session_id="auto-dir-test",
         )
         try:
             assert os.path.isdir(m.export_dir)
         finally:
-            # Clean up temp dir
             import shutil
             if os.path.isdir(m.export_dir):
                 shutil.rmtree(m.export_dir, ignore_errors=True)
 
     def test_large_match_list(self, tmp_path):
-        """100 matches should export without error."""
+        """100 det matches should export without error."""
         matches = [_det(f"D{i}", f"GL{i}", f"S{i}") for i in range(100)]
-        m = _run(all_matches=matches, tmp_path=tmp_path)
-        path = next(f.path for f in m.files if f.filename == "final_matches.csv")
+        m = _run(det_matches=matches, tmp_path=tmp_path)
+        path = next(f.path for f in m.files if f.filename == "final_results.csv")
         df = pd.read_csv(path)
         assert len(df) == 100

@@ -21,6 +21,7 @@ export interface SessionStatusResponse {
   is_review_phase: boolean
   snapshot_count: number
   matching_summary: Record<string, number>
+  matching_amount_summary: Record<string, number>
 }
 
 export interface SessionListResponse {
@@ -107,6 +108,8 @@ export interface PreprocessingResponse {
     alias_version: string
   }
   vendor_normalization_map: Array<Record<string, unknown>>
+  unmatched_sub_vendors: string[]
+  unmatched_sub_normalized: Record<string, string>
   snapshot: SnapshotInfo
 }
 
@@ -195,14 +198,16 @@ function fileWithName(file: File, expectedName: string): File {
 
 export async function uploadFiles(
   sessionId: string,
-  chartOfAccounts: File,
   gl: File,
-  subledger: File
+  subledger: File,
+  chartOfAccounts?: File | null
 ): Promise<UploadSuccessResponse> {
   const form = new FormData()
-  form.append("chart_of_accounts", fileWithName(chartOfAccounts, "Chart_of_Accounts.csv"))
   form.append("gl", fileWithName(gl, "GL.csv"))
   form.append("subledger", fileWithName(subledger, "Subledger.csv"))
+  if (chartOfAccounts) {
+    form.append("chart_of_accounts", fileWithName(chartOfAccounts, "Chart_of_Accounts.csv"))
+  }
   const res = await fetchWithTimeout(
     `${API_BASE_URL}/reconciliation/${sessionId}/upload`,
     {
@@ -252,6 +257,27 @@ export function getPreprocess(sessionId: string): Promise<PreprocessingResponse>
   return apiRequest<PreprocessingResponse>(`/reconciliation/${sessionId}/preprocess`, {
     timeoutMs: 15_000,
   })
+}
+
+/** Apply manual vendor overrides to Vendor_Normalized before matching. */
+export function applyVendorOverrides(
+  sessionId: string,
+  vendorOverrides: Record<string, string>
+): Promise<{ status: string; applied_count: number }> {
+  const filtered = Object.fromEntries(
+    Object.entries(vendorOverrides).filter(([, v]) => v != null && String(v).trim() !== '')
+  )
+  if (Object.keys(filtered).length === 0) {
+    return Promise.resolve({ status: 'ok', applied_count: 0 })
+  }
+  return apiRequest<{ status: string; applied_count: number }>(
+    `/reconciliation/${sessionId}/preprocess/vendor_overrides`,
+    {
+      method: 'POST',
+      body: { vendor_overrides: filtered },
+      timeoutMs: 15_000,
+    }
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +356,12 @@ export function getConsolidation(sessionId: string): Promise<FinalConsolidationR
   })
 }
 
+export function getSummaryNarrative(sessionId: string): Promise<{ narrative: string }> {
+  return apiRequest<{ narrative: string }>(`/reconciliation/${sessionId}/narrative`, {
+    timeoutMs: 30_000,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
@@ -350,9 +382,37 @@ export function getExportFileDownloadUrl(sessionId: string, filename: string): s
   return `${API_BASE_URL}/reconciliation/${sessionId}/export/files/${encodeURIComponent(filename)}`
 }
 
+/** Returns the URL to download a ZIP of the given filenames in one request. */
+export function getExportZipUrl(sessionId: string, filenames: string[]): string {
+  const params = new URLSearchParams({ files: filenames.join(",") })
+  return `${API_BASE_URL}/reconciliation/${sessionId}/export/zip?${params}`
+}
+
 // ---------------------------------------------------------------------------
 // Adapters for existing UI (summary, unmatched, file profile display)
 // ---------------------------------------------------------------------------
+
+export interface ColumnStat {
+  name: string
+  data_type: "numeric" | "date" | "string"
+  unique_count: number
+  null_count: number
+  null_pct: number
+  // numeric only
+  min?: number | string | null
+  max?: number | string | null
+  mean?: number | null
+  median?: number | null
+  std?: number | null
+  sum?: number | null
+  // string only
+  max_len?: number | null
+  min_len?: number | null
+  blank_count?: number | null
+  mode?: string | null
+  // histogram
+  histogram: { label: string; count: number }[]
+}
 
 /** Per-file profile shape used by LoadFiles profiling section. */
 export interface FileProfile {
@@ -361,7 +421,7 @@ export interface FileProfile {
   date_from: string
   date_to: string
   total_amount: number
-  columns: { name: string; type: string; buckets?: { label: string; count: number }[] }[]
+  column_stats: ColumnStat[]
 }
 
 /** Map backend ProfilingResponse.metrics.files to FileProfile for GL/subledger. */
@@ -389,38 +449,36 @@ export function metricsToFileProfile(
   )
   const nd = numCol ? numDistsObj[numCol] : null
 
-  const entityDist = (f as Record<string, unknown>).entity_distribution as Record<string, number> | undefined
-  const entityDistObj = entityDist && typeof entityDist === "object" ? entityDist : {}
-  const uniqueVendors = Object.keys(entityDistObj).length || 0
-
-  const nullCounts = (f as Record<string, unknown>).null_counts as Record<string, number> | undefined
-  const nullCountsObj = nullCounts && typeof nullCounts === "object" ? nullCounts : {}
-
-  const columns: FileProfile["columns"] = [
-    ...Object.entries(numDistsObj).map(([name]) => ({
-      name,
-      type: "numeric" as const,
-      buckets: [] as { label: string; count: number }[],
-    })),
-    ...Object.entries(dateRangesObj).map(([name]) => ({
-      name,
-      type: "date" as const,
-      buckets: [] as { label: string; count: number }[],
-    })),
-  ]
-  if (columns.length === 0 && Object.keys(nullCountsObj).length > 0) {
-    columns.push(
-      ...Object.entries(nullCountsObj).map(([name]) => ({
-        name,
-        type: "string" as const,
-        buckets: [] as { label: string; count: number }[],
-      }))
-    )
-  }
+  const uniqueVendors = typeof (f as Record<string, unknown>).unique_vendor_count === "number"
+    ? (f as Record<string, number>).unique_vendor_count
+    : 0
 
   const rowCount = typeof (f as Record<string, unknown>).row_count === "number"
     ? (f as Record<string, number>).row_count
     : 0
+
+  // Build ColumnStat array from column_profiles (new backend field)
+  const rawProfiles = (f as Record<string, unknown>).column_profiles as Record<string, Record<string, unknown>> | undefined
+  const column_stats: ColumnStat[] = rawProfiles
+    ? Object.entries(rawProfiles).map(([name, p]) => ({
+        name,
+        data_type:    (p.data_type as ColumnStat["data_type"]) ?? "string",
+        unique_count: (p.unique_count as number) ?? 0,
+        null_count:   (p.null_count as number) ?? 0,
+        null_pct:     (p.null_pct as number) ?? 0,
+        min:          p.min as number | string | null | undefined,
+        max:          p.max as number | string | null | undefined,
+        mean:         p.mean as number | null | undefined,
+        median:       p.median as number | null | undefined,
+        std:          p.std as number | null | undefined,
+        sum:          p.sum as number | null | undefined,
+        max_len:      p.max_len as number | null | undefined,
+        min_len:      p.min_len as number | null | undefined,
+        blank_count:  p.blank_count as number | null | undefined,
+        mode:         p.mode as string | null | undefined,
+        histogram:    (p.histogram as { label: string; count: number }[]) ?? [],
+      }))
+    : []
 
   return {
     row_count: rowCount,
@@ -428,7 +486,7 @@ export function metricsToFileProfile(
     date_from: (dr && "min" in dr ? dr.min : null) ?? "",
     date_to: (dr && "max" in dr ? dr.max : null) ?? "",
     total_amount: (nd && "sum" in nd ? nd.sum : null) ?? 0,
-    columns,
+    column_stats,
   }
 }
 

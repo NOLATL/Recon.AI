@@ -51,12 +51,26 @@ def get_session_status(session_id: str):
     runtime = rm.get_runtime(session_id)
     matching = runtime.get("matching", {})
 
+    # Build GL id → amount lookup for per-phase amount sums
+    gl_amount_map: dict = {}
+    clean_gl = (runtime.get("clean_data") or {}).get("gl")
+    if clean_gl is not None and not clean_gl.empty and "gl_id" in clean_gl.columns and "amount" in clean_gl.columns:
+        gl_amount_map = dict(zip(clean_gl["gl_id"].astype(str), clean_gl["amount"]))
+
+    def _sum_amounts(records: list) -> float:
+        total = 0.0
+        for rec in records:
+            for gl_id in rec.get("record_ids_A", []):
+                total += float(gl_amount_map.get(str(gl_id), 0))
+        return total
+
     return SessionStatusResponse(
         session_id=session_id,
         current_state=rm.get_current_state(session_id).value,
         is_review_phase=rm.is_review_phase(session_id),
         snapshot_count=len(rm.get_session_snapshots(session_id)),
         matching_summary={k: len(v) for k, v in matching.items()},
+        matching_amount_summary={k: _sum_amounts(v) for k, v in matching.items()},
     )
 
 

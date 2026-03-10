@@ -102,6 +102,7 @@ SCHEMAS: Dict[str, Dict] = {
 _VALID_BOOL_VALUES = frozenset({
     True, False, 1, 0,
     "true", "false", "True", "False", "1", "0",
+    "Y", "N", "y", "n",
 })
 
 # Canonical mapping used when casting a validated bool column
@@ -111,6 +112,8 @@ _BOOL_CAST_MAP = {
     "true": True,  "false": False,
     "True": True,  "False": False,
     "1": True,     "0": False,
+    "Y": True,     "N": False,
+    "y": True,     "n": False,
 }
 
 

@@ -4,11 +4,15 @@ Probabilistic Matching Service — Phase 5: deterministic_review_complete → pr
 Operates exclusively on the residual pool left by the deterministic layer.
 Never mutates deterministic matches.
 
-Similarity formula (from ARCHITECTURE_CONSTRAINTS.md):
-  final_similarity = 0.40 * vendor_similarity
-                   + 0.35 * amount_similarity
+Similarity formula:
+  final_similarity = 0.45 * vendor_similarity
+                   + 0.40 * amount_similarity
                    + 0.15 * date_similarity
-                   + 0.10 * entity_similarity
+
+  Entity similarity is excluded from the formula — entity blocking (same entity
+  required) is enforced as a hard constraint, so entity_similarity is always 1.0
+  and contributes no discriminating information. It is retained in component_scores
+  as metadata only.
 
 Blocking rules (minimum criteria before scoring):
   1. Same entity
@@ -21,17 +25,24 @@ Matching algorithm:
     Sort by final_similarity descending; greedy assignment (highest first).
 
   Step 2 — N:1 grouping
-    For each entity group in remaining records, search combinations of
-    2–MAX_GROUP_SIZE GL rows whose total amount falls in the Sub's tolerance band.
+    For each entity group, two-pass globally optimal assignment:
+      Pass 1: Score ALL feasible combinations of 2–MAX_GROUP_SIZE GL rows
+              whose total amount falls in the Sub's tolerance band.
+              Candidates pre-filtered by date tolerance AND vendor similarity
+              ≥ VENDOR_SIM_MIN before the combination search.
+      Pass 2: Sort all scored combos descending by score; greedily accept
+              the highest-scoring non-conflicting combo first (global greedy,
+              not per-anchor greedy — prevents lower-ranked sub rows from
+              claiming GL records that score higher against a different sub row).
     Group-level similarity computed as:
       vendor_sim  = mean of individual GL→Sub vendor similarities
       amount_sim  = _amount_sim(sum(GL amounts), Sub amount)
       date_sim    = mean of individual GL→Sub date similarities
-      entity_sim  = 1.0 (guaranteed by entity grouping)
     Only accepted if final group similarity ≥ threshold.
 
   Step 3 — 1:N grouping
     Mirror of N:1: one GL row, combinations of 2–MAX_GROUP_SIZE Sub rows.
+    Same two-pass globally optimal assignment as Step 2.
 
 Threshold:
   Provided via `threshold` parameter; stored in runtime["config"]["threshold"].
@@ -57,17 +68,18 @@ from rapidfuzz import fuzz
 # Constants
 # ---------------------------------------------------------------------------
 
-DATE_TOLERANCE_DAYS:  int   = 60
+DATE_TOLERANCE_DAYS:  int   = 30
 MAX_GROUP_SIZE:       int   = 5
-AMOUNT_PCT_TOLERANCE: float = 0.20     # 20 % of the larger absolute amount
+AMOUNT_PCT_TOLERANCE: float = 0.10     # 10 % of the larger absolute amount
 AMOUNT_ABS_TOLERANCE: float = 5.00    # always allow at least $5 difference
 DEFAULT_THRESHOLD:    float = 0.80
+VENDOR_SIM_MIN:       float = 0.50    # minimum vendor similarity for N:M combo candidates
 
 DEFAULT_WEIGHTS: Dict[str, float] = {
-    "vendor": 0.40,
-    "amount": 0.35,
+    "vendor": 0.45,
+    "amount": 0.40,
     "date":   0.15,
-    "entity": 0.10,
+    # entity excluded: always 1.0 via blocking, contributes no discrimination
 }
 
 _EPOCH  = pd.Timestamp("1970-01-01")
@@ -161,12 +173,11 @@ def _entity_sim(entity_a: str, entity_b: str) -> float:
 
 
 def _final_sim(comp: Dict[str, float], weights: Dict[str, float]) -> float:
-    """Weighted sum of component similarities."""
+    """Weighted sum of component similarities. Entity excluded (always 1.0 via blocking)."""
     return (
         weights["vendor"] * comp["vendor_similarity"] +
         weights["amount"] * comp["amount_similarity"] +
-        weights["date"]   * comp["date_similarity"]   +
-        weights["entity"] * comp["entity_similarity"]
+        weights["date"]   * comp["date_similarity"]
     )
 
 
@@ -300,19 +311,20 @@ def _match_n_to_1(
     weights: Dict[str, float],
 ) -> Tuple[List[ProbabilisticMatchRecord], Set[str], Set[str], int, int]:
     """
-    For each entity group: search combinations of 2–MAX_GROUP_SIZE GL rows
-    whose total amount is within the tolerance band of a single Sub amount.
-    Accepts if group-level final_similarity ≥ threshold.
+    For each entity group: two-pass globally optimal assignment.
 
-    Optimisations vs. naive iterrows version:
-      - Vectorised column extraction per entity group (avoids iterrows).
-      - Date ordinals pre-computed per entity pool instead of inside the combo loop.
-      - Index-based availability sets with O(1) discard (no O(n) list rebuild per sub row).
-      - Date pre-filter reduces GL candidates before combinations() is called.
-      - Infeasibility guard: if the sum of all date-filtered candidates cannot reach
-        sub_amount (within tolerance), the sub row is skipped entirely.
-      - Candidates sorted descending by amount: largest-value combinations found
-        sooner, which terminates the search for a given sub row earlier.
+    Pass 1 — Enumerate ALL feasible GL combos (2–MAX_GROUP_SIZE) for every sub row:
+      - Candidates pre-filtered by date tolerance AND vendor similarity ≥ VENDOR_SIM_MIN,
+        ensuring combinations are only attempted between genuinely related records.
+      - Amount tolerance check applied inside the combo loop.
+      - All qualifying combos scored and collected.
+
+    Pass 2 — Globally optimal greedy assignment:
+      - All combos sorted by score descending across the entire entity group.
+      - Combos accepted in score order; a combo is skipped if any of its GL indices
+        or its sub row are already claimed by a higher-scoring combo.
+      - This prevents early-arriving (low-scoring) sub rows from consuming GL records
+        that score significantly higher against a different sub row.
 
     Returns:
         (matches, used_gl_ids, used_sub_ids, combos_evaluated, max_depth_reached)
@@ -354,29 +366,27 @@ def _match_n_to_1(
         n_gl  = len(gl_ids)
         n_sub = len(sub_ids)
 
-        # Index-based availability sets: O(1) discard vs. O(n) list rebuild.
-        avail_gl_idx  = set(range(n_gl))
-        avail_sub_idx = set(range(n_sub))
+        # Pass 1: enumerate ALL feasible combos across all sub rows in this entity group.
+        entity_combos: List[Tuple[float, tuple, int, Dict]] = []  # (sim, gl_combo, sub_i, comp)
 
         for sub_i in range(n_sub):
-            if sub_i not in avail_sub_idx:
-                continue
-
-            sub_id     = sub_ids[sub_i]
             sub_amount = sub_amts[sub_i]
             sub_dord   = sub_dords[sub_i]
             sub_vn     = sub_vns[sub_i]
 
-            # Pre-filter GL candidates by date tolerance (reduces combination space).
+            # Pre-filter GL candidates by date tolerance AND vendor similarity minimum.
+            # This ensures N:M groups are only formed between genuinely related records,
+            # not just any records whose amounts happen to tally.
             candidates = [
-                i for i in avail_gl_idx
+                i for i in range(n_gl)
                 if gl_dords[i] is not None and sub_dord is not None
                 and abs(gl_dords[i] - sub_dord) <= DATE_TOLERANCE_DAYS
+                and _vendor_sim(gl_vns[i], sub_vn) >= VENDOR_SIM_MIN
             ]
             if len(candidates) < 2:
                 continue
 
-            # Infeasibility guard: even using ALL date-filtered GL records, can we
+            # Infeasibility guard: even using ALL filtered GL records, can we
             # reach sub_amount within tolerance? (Assumes positive amounts.)
             if sub_amount > 0:
                 max_reachable = sum(gl_amts[i] for i in candidates)
@@ -387,8 +397,6 @@ def _match_n_to_1(
             # Sort descending by amount: find amount-feasible combos with fewer iterations.
             candidates_sorted = sorted(candidates, key=lambda i: -gl_amts[i])
 
-            best_match: Optional[Tuple[float, tuple, Dict]] = None
-
             for size in range(2, MAX_GROUP_SIZE + 1):
                 if len(candidates_sorted) < size:
                     break
@@ -398,7 +406,6 @@ def _match_n_to_1(
                     base   = max(abs(gl_sum), abs(sub_amount), 0.01)
                     if abs(gl_sum - sub_amount) > max(AMOUNT_PCT_TOLERANCE * base, AMOUNT_ABS_TOLERANCE):
                         continue
-                    # Date already pre-filtered; compute group-level similarity.
                     indiv_vendor = [_vendor_sim(gl_vns[i], sub_vn) for i in combo]
                     indiv_date   = [_date_sim_ordinals(gl_dords[i], sub_dord) for i in combo]
                     comp = {
@@ -409,28 +416,32 @@ def _match_n_to_1(
                     }
                     sim = _final_sim(comp, weights)
                     if sim >= threshold:
-                        if best_match is None or sim > best_match[0]:
-                            best_match = (sim, combo, comp)
+                        entity_combos.append((sim, combo, sub_i, comp))
 
-                if best_match is not None:
-                    max_depth_reached = max(max_depth_reached, size)
+        # Pass 2: globally optimal greedy assignment — highest-scoring combo first.
+        entity_combos.sort(key=lambda x: x[0], reverse=True)
+        used_gl_local:  Set[int] = set()
+        used_sub_local: Set[int] = set()
 
-            if best_match is not None:
-                sim, combo, comp = best_match
-                gl_combo_ids = [gl_ids[i] for i in combo]
-                avail_sub_idx.discard(sub_i)
-                for idx in combo:
-                    avail_gl_idx.discard(idx)
-                used_sub.add(sub_id)
-                used_gl.update(gl_combo_ids)
-                matches.append(ProbabilisticMatchRecord(
-                    match_id=         str(uuid.uuid4()),
-                    record_ids_A=     gl_combo_ids,
-                    record_ids_B=     [sub_id],
-                    final_similarity= round(sim, 4),
-                    component_scores= {k: round(v, 4) for k, v in comp.items()},
-                    grouping_type=    "many_to_one",
-                ))
+        for sim, combo, sub_i, comp in entity_combos:
+            if sub_i in used_sub_local:
+                continue
+            if any(idx in used_gl_local for idx in combo):
+                continue
+            gl_combo_ids = [gl_ids[i] for i in combo]
+            used_sub_local.add(sub_i)
+            used_gl_local.update(combo)
+            used_sub.add(sub_ids[sub_i])
+            used_gl.update(gl_combo_ids)
+            max_depth_reached = max(max_depth_reached, len(combo))
+            matches.append(ProbabilisticMatchRecord(
+                match_id=         str(uuid.uuid4()),
+                record_ids_A=     gl_combo_ids,
+                record_ids_B=     [sub_ids[sub_i]],
+                final_similarity= round(sim, 4),
+                component_scores= {k: round(v, 4) for k, v in comp.items()},
+                grouping_type=    "many_to_one",
+            ))
 
     return matches, used_gl, used_sub, combos_evaluated, max_depth_reached
 
@@ -446,11 +457,8 @@ def _match_1_to_n(
     weights: Dict[str, float],
 ) -> Tuple[List[ProbabilisticMatchRecord], Set[str], Set[str], int, int]:
     """
-    For each entity group: search combinations of 2–MAX_GROUP_SIZE Sub rows
-    whose total amount is within the GL's tolerance band.
-    Accepts if group-level final_similarity ≥ threshold.
-
-    Same optimisation strategy as _match_n_to_1 (symmetric mirror).
+    Symmetric mirror of _match_n_to_1: one GL row, combinations of 2–MAX_GROUP_SIZE Sub rows.
+    Uses the same two-pass globally optimal assignment strategy.
 
     Returns:
         (matches, used_gl_ids, used_sub_ids, combos_evaluated, max_depth_reached)
@@ -491,23 +499,20 @@ def _match_1_to_n(
         n_gl  = len(gl_ids)
         n_sub = len(sub_ids)
 
-        avail_gl_idx  = set(range(n_gl))
-        avail_sub_idx = set(range(n_sub))
+        # Pass 1: enumerate ALL feasible combos across all GL rows in this entity group.
+        entity_combos: List[Tuple[float, int, tuple, Dict]] = []  # (sim, gl_i, sub_combo, comp)
 
         for gl_i in range(n_gl):
-            if gl_i not in avail_gl_idx:
-                continue
-
-            gl_id     = gl_ids[gl_i]
             gl_amount = gl_amts[gl_i]
             gl_dord   = gl_dords[gl_i]
             gl_vn     = gl_vns[gl_i]
 
-            # Pre-filter Sub candidates by date tolerance.
+            # Pre-filter Sub candidates by date tolerance AND vendor similarity minimum.
             candidates = [
-                i for i in avail_sub_idx
+                i for i in range(n_sub)
                 if sub_dords[i] is not None and gl_dord is not None
                 and abs(sub_dords[i] - gl_dord) <= DATE_TOLERANCE_DAYS
+                and _vendor_sim(gl_vn, sub_vns[i]) >= VENDOR_SIM_MIN
             ]
             if len(candidates) < 2:
                 continue
@@ -520,8 +525,6 @@ def _match_1_to_n(
                     continue
 
             candidates_sorted = sorted(candidates, key=lambda i: -sub_amts[i])
-
-            best_match: Optional[Tuple[float, tuple, Dict]] = None
 
             for size in range(2, MAX_GROUP_SIZE + 1):
                 if len(candidates_sorted) < size:
@@ -542,28 +545,32 @@ def _match_1_to_n(
                     }
                     sim = _final_sim(comp, weights)
                     if sim >= threshold:
-                        if best_match is None or sim > best_match[0]:
-                            best_match = (sim, combo, comp)
+                        entity_combos.append((sim, gl_i, combo, comp))
 
-                if best_match is not None:
-                    max_depth_reached = max(max_depth_reached, size)
+        # Pass 2: globally optimal greedy assignment — highest-scoring combo first.
+        entity_combos.sort(key=lambda x: x[0], reverse=True)
+        used_gl_local:  Set[int] = set()
+        used_sub_local: Set[int] = set()
 
-            if best_match is not None:
-                sim, combo, comp = best_match
-                sub_combo_ids = [sub_ids[i] for i in combo]
-                avail_gl_idx.discard(gl_i)
-                for idx in combo:
-                    avail_sub_idx.discard(idx)
-                used_gl.add(gl_id)
-                used_sub.update(sub_combo_ids)
-                matches.append(ProbabilisticMatchRecord(
-                    match_id=         str(uuid.uuid4()),
-                    record_ids_A=     [gl_id],
-                    record_ids_B=     sub_combo_ids,
-                    final_similarity= round(sim, 4),
-                    component_scores= {k: round(v, 4) for k, v in comp.items()},
-                    grouping_type=    "one_to_many",
-                ))
+        for sim, gl_i, combo, comp in entity_combos:
+            if gl_i in used_gl_local:
+                continue
+            if any(idx in used_sub_local for idx in combo):
+                continue
+            sub_combo_ids = [sub_ids[i] for i in combo]
+            used_gl_local.add(gl_i)
+            used_sub_local.update(combo)
+            used_gl.add(gl_ids[gl_i])
+            used_sub.update(sub_combo_ids)
+            max_depth_reached = max(max_depth_reached, len(combo))
+            matches.append(ProbabilisticMatchRecord(
+                match_id=         str(uuid.uuid4()),
+                record_ids_A=     [gl_ids[gl_i]],
+                record_ids_B=     sub_combo_ids,
+                final_similarity= round(sim, 4),
+                component_scores= {k: round(v, 4) for k, v in comp.items()},
+                grouping_type=    "one_to_many",
+            ))
 
     return matches, used_gl, used_sub, combos_evaluated, max_depth_reached
 

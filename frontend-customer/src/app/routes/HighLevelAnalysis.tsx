@@ -1,4 +1,4 @@
-import { Fragment, useState, useMemo, useEffect } from 'react'
+import { Fragment, useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   flexRender,
@@ -8,7 +8,7 @@ import {
   type ColumnDef,
   type ExpandedState,
 } from '@tanstack/react-table'
-import { ChevronDown, ChevronRight, Check, Edit3, XCircle, ArrowRight, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Check, XCircle, ArrowRight, Loader2, RefreshCw } from 'lucide-react'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,12 +27,30 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { MatchingFunnel } from '@/components/analysis/MatchingFunnel'
 import {
   RECON_SESSION_ID_KEY,
   getConsolidation,
+  getSummaryNarrative,
   type FinalConsolidationResponse,
 } from '@/api/endpoints'
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtAmount(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}K`
+  return `$${n.toFixed(0)}`
+}
+
+// Colours: Deterministic / Probabilistic / AI / Unmatched
+const LAYER_COLORS = {
+  deterministic: '#16a34a',
+  probabilistic: '#2563eb',
+  ai:            '#7c3aed',
+  unmatched:     '#d97706',
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export type MatchMethod = 'Deterministic' | 'Probabilistic' | 'AI'
 export type MatchStatus = 'Pending' | 'Accepted' | 'Overridden' | 'Unmatched'
@@ -52,6 +70,19 @@ export interface MatchRow {
   status: MatchStatus
   gl_ref?: string
   sl_ref?: string
+  /** All GL records in this match (one-to-many or many-to-one) */
+  gl_records: Record<string, unknown>[]
+  /** All Subledger records in this match (one-to-many or many-to-one) */
+  sl_records: Record<string, unknown>[]
+}
+
+function _field(rec: Record<string, unknown> | undefined, ...keys: string[]): string {
+  if (!rec) return ''
+  for (const k of keys) {
+    const v = rec[k]
+    if (v !== undefined && v !== null) return String(v)
+  }
+  return ''
 }
 
 function matchesToRows(
@@ -63,8 +94,14 @@ function matchesToRows(
     const layer = String(m.layer ?? '')
     const glIds = (m.record_ids_A as string[]) ?? []
     const subIds = (m.record_ids_B as string[]) ?? []
-    const glRec = glIds.length > 0 ? glById.get(String(glIds[0])) : undefined
-    const subRec = subIds.length > 0 ? subById.get(String(subIds[0])) : undefined
+    const glRecords = glIds
+      .map((id) => glById.get(String(id)))
+      .filter((r): r is Record<string, unknown> => r != null)
+    const slRecords = subIds
+      .map((id) => subById.get(String(id)))
+      .filter((r): r is Record<string, unknown> => r != null)
+    const glRec = glRecords[0]
+    const subRec = slRecords[0]
 
     let confidence = 0
     if (layer === 'deterministic') confidence = Number(m.confidence_score ?? 0)
@@ -75,21 +112,27 @@ function matchesToRows(
       layer === 'deterministic' ? 'Deterministic' :
       layer === 'probabilistic' ? 'Probabilistic' : 'AI'
 
+    // Summary fields use first record; amounts can be totals for multi-record matches
+    const glAmount = glRecords.reduce((s, r) => s + Number(r.amount ?? 0), 0)
+    const slAmount = slRecords.reduce((s, r) => s + Number(r.amount ?? 0), 0)
+
     return {
       id: String(m.match_id ?? i),
-      gl_entity:  String(glRec?.entity ?? ''),
-      gl_vendor:  String(glRec?.vendor_name ?? glRec?.Vendor_Normalized ?? glRec?.vendor ?? ''),
-      gl_date:    String(glRec?.transaction_date ?? glRec?.date ?? ''),
-      gl_amount:  Number(glRec?.amount ?? 0),
-      sl_entity:  String(subRec?.entity ?? ''),
-      sl_vendor:  String(subRec?.vendor_name ?? subRec?.Vendor_Normalized ?? subRec?.vendor ?? ''),
-      sl_date:    String(subRec?.transaction_date ?? subRec?.date ?? ''),
-      sl_amount:  Number(subRec?.amount ?? 0),
+      gl_entity:  _field(glRec, 'entity'),
+      gl_vendor:  _field(glRec, 'vendor_name', 'Vendor_Normalized', 'vendor'),
+      gl_date:    _field(glRec, 'transaction_date', 'date'),
+      gl_amount:  glAmount,
+      sl_entity:  _field(subRec, 'entity'),
+      sl_vendor:  _field(subRec, 'vendor_name', 'Vendor_Normalized', 'vendor'),
+      sl_date:    _field(subRec, 'transaction_date', 'date'),
+      sl_amount:  slAmount,
       match_method: matchMethod,
       confidence,
       status: 'Accepted',
-      gl_ref:  String(glRec?.gl_id ?? glRec?.ref ?? ''),
-      sl_ref:  String(subRec?.subledger_id ?? subRec?.ref ?? ''),
+      gl_ref:  _field(glRec, 'gl_id', 'ref'),
+      sl_ref:  _field(subRec, 'subledger_id', 'ref'),
+      gl_records: glRecords,
+      sl_records: slRecords,
     }
   })
 }
@@ -111,6 +154,8 @@ const defaultFilters: FiltersState = {
   dateFrom: '',
   dateTo: '',
 }
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function HighLevelAnalysis() {
   const navigate = useNavigate()
@@ -143,49 +188,83 @@ export function HighLevelAnalysis() {
       .finally(() => setLoading(false))
   }, [])
 
+  // ── GL-perspective summary ──────────────────────────────────────────────────
+
   const summary = useMemo(() => {
     if (!consolidation) return null
-    const s = consolidation.summary
-    const total = s.total_match_count + s.residual_gl_count
-    const matchRate = total > 0 ? s.total_match_count / total : 0
+    const glMatched   = (consolidation.gl_records as Record<string, unknown>[]).length
+    const glUnmatched = (consolidation.residual_gl_records as Record<string, unknown>[]).length
+    const glTotal     = glMatched + glUnmatched
+    const matchRate   = glTotal > 0 ? glMatched / glTotal : 0
     const matchedAmount = (consolidation.gl_records as Record<string, unknown>[]).reduce(
       (sum, r) => sum + Number(r.amount ?? 0), 0
     )
     const unmatchedAmount = (consolidation.residual_gl_records as Record<string, unknown>[]).reduce(
       (sum, r) => sum + Number(r.amount ?? 0), 0
     )
-    return { match_rate: matchRate, matched_amount: matchedAmount, unmatched_amount: unmatchedAmount }
+    return { glMatched, glUnmatched, glTotal, matchRate, matchedAmount, unmatchedAmount }
   }, [consolidation])
 
-  const funnelData = useMemo(() => {
-    if (!consolidation) return []
-    const s = consolidation.summary
-    const total = s.total_match_count + s.residual_gl_count
-    return [
-      { name: 'Total Transactions', value: total, amount: 0 },
-      { name: 'Deterministic Matches', value: s.deterministic_match_count, amount: 0 },
-      { name: 'Probabilistic Matches', value: s.probabilistic_match_count, amount: 0 },
-      { name: 'AI Matches', value: s.ai_match_count, amount: 0 },
-      { name: 'Unmatched', value: s.residual_gl_count, amount: 0 },
-    ]
-  }, [consolidation])
+  // ── Bar chart data (GL-perspective row counts + amounts per layer) ───────────
 
-  const narrative = useMemo(() => {
-    if (!consolidation) return ''
-    const s = consolidation.summary
-    const total = s.total_match_count + s.residual_gl_count
-    const rate = total > 0 ? ((s.total_match_count / total) * 100).toFixed(1) : '0'
-    return (
-      `This reconciliation processed ${total.toLocaleString()} GL transactions. ` +
-      `${s.total_match_count.toLocaleString()} records were matched (${rate}% match rate). ` +
-      `Deterministic matching resolved ${s.deterministic_match_count.toLocaleString()} records, ` +
-      `probabilistic matching resolved ${s.probabilistic_match_count.toLocaleString()} additional records, ` +
-      `and AI matching resolved ${s.ai_match_count.toLocaleString()} records. ` +
-      `${s.residual_gl_count.toLocaleString()} GL records and ${s.residual_sub_count.toLocaleString()} ` +
-      `subledger records remain unmatched.` +
-      (s.rejected_count > 0 ? ` ${s.rejected_count.toLocaleString()} matches were rejected during review.` : '')
+  const chartData = useMemo(() => {
+    if (!consolidation || !summary) return []
+
+    // GL id → amount
+    const glAmtMap = new Map<string, number>()
+    ;(consolidation.gl_records as Record<string, unknown>[]).forEach(r => {
+      const id = String(r['gl_id'] ?? '')
+      if (id) glAmtMap.set(id, Number(r['amount'] ?? 0))
+    })
+    ;(consolidation.residual_gl_records as Record<string, unknown>[]).forEach(r => {
+      const id = String(r['gl_id'] ?? '')
+      if (id) glAmtMap.set(id, Number(r['amount'] ?? 0))
+    })
+
+    // Count GL rows and sum amounts per match layer
+    const glCount: Record<string, number> = { deterministic: 0, probabilistic: 0, ai: 0 }
+    const amtByLayer: Record<string, number> = { deterministic: 0, probabilistic: 0, ai: 0 }
+    ;(consolidation.final_matches as Record<string, unknown>[]).forEach(m => {
+      const layer = String(m['layer'] ?? '')
+      const glIds = (m['record_ids_A'] as string[]) ?? []
+      if (layer in glCount) {
+        glCount[layer] += glIds.length
+        amtByLayer[layer] += glIds.reduce((s, id) => s + (glAmtMap.get(id) ?? 0), 0)
+      }
+    })
+
+    const unmatchedAmount = (consolidation.residual_gl_records as Record<string, unknown>[]).reduce(
+      (s, r) => s + Number(r['amount'] ?? 0), 0
     )
-  }, [consolidation])
+
+    return [
+      { name: 'Deterministic', count: glCount.deterministic, amount: amtByLayer.deterministic, color: LAYER_COLORS.deterministic },
+      { name: 'Probabilistic', count: glCount.probabilistic, amount: amtByLayer.probabilistic, color: LAYER_COLORS.probabilistic },
+      { name: 'AI Matches',    count: glCount.ai,            amount: amtByLayer.ai,            color: LAYER_COLORS.ai },
+      { name: 'Unmatched',     count: summary.glUnmatched,   amount: unmatchedAmount,           color: LAYER_COLORS.unmatched },
+    ]
+  }, [consolidation, summary])
+
+  // ── Narrative ──────────────────────────────────────────────────────────────
+
+  const [narrative, setNarrative]               = useState<string>('')
+  const [narrativeLoading, setNarrativeLoading] = useState(false)
+
+  const fetchNarrative = useCallback(() => {
+    const sessionId = localStorage.getItem(RECON_SESSION_ID_KEY)
+    if (!sessionId) return
+    setNarrativeLoading(true)
+    getSummaryNarrative(sessionId)
+      .then(r => setNarrative(r.narrative))
+      .catch(() => setNarrative(''))
+      .finally(() => setNarrativeLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (consolidation) fetchNarrative()
+  }, [consolidation, fetchNarrative])
+
+  // ── Filtering & table ──────────────────────────────────────────────────────
 
   const filteredData = useMemo(() => {
     return matches.filter((row) => {
@@ -252,7 +331,19 @@ export function HighLevelAnalysis() {
         id: 'match_info',
         header: 'Match Info',
         columns: [
-          { accessorKey: 'match_method', header: 'Method', cell: (c) => c.getValue() },
+          {
+            accessorKey: 'match_method',
+            header: 'Method',
+            cell: ({ row }) => {
+              const m = row.original
+              const glN = m.gl_records.length
+              const slN = m.sl_records.length
+              const groupHint = (glN > 1 || slN > 1)
+                ? ` · ${glN} GL × ${slN} Sub`
+                : ''
+              return `${m.match_method}${groupHint}`
+            },
+          },
           {
             accessorKey: 'confidence',
             header: 'Confidence',
@@ -275,17 +366,17 @@ export function HighLevelAnalysis() {
     getExpandedRowModel: getExpandedRowModel(),
   })
 
-  const handleAccept = (id: string) =>
+  const handleAccept       = (id: string) =>
     setMatches(prev => prev.map(r => r.id === id ? { ...r, status: 'Accepted' as MatchStatus } : r))
-  const handleOverride = (id: string) =>
-    setMatches(prev => prev.map(r => r.id === id ? { ...r, status: 'Overridden' as MatchStatus } : r))
   const handleMarkUnmatched = (id: string) =>
     setMatches(prev => prev.map(r => r.id === id ? { ...r, status: 'Unmatched' as MatchStatus } : r))
 
-  const handleExpandAll  = () => setExpanded(true)
+  const handleExpandAll   = () => setExpanded(true)
   const handleCollapseAll = () => setExpanded({})
-  const handleAcceptAll  = () => setMatches(prev => prev.map(r => ({ ...r, status: 'Accepted' as MatchStatus })))
-  const handleRejectAll  = () => setMatches(prev => prev.map(r => ({ ...r, status: 'Unmatched' as MatchStatus })))
+  const handleAcceptAll   = () => setMatches(prev => prev.map(r => ({ ...r, status: 'Accepted' as MatchStatus })))
+  const handleRejectAll   = () => setMatches(prev => prev.map(r => ({ ...r, status: 'Unmatched' as MatchStatus })))
+
+  // ── Loading / error states ─────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -313,17 +404,36 @@ export function HighLevelAnalysis() {
     )
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const glTotal = summary?.glTotal ?? 0
+
   return (
     <PageLayout title="High-Level Analysis" description="Summary of reconciliation results and match review.">
-      {/* 1. BANS */}
-      <section className="grid gap-4 sm:grid-cols-3">
+
+      {/* 1. BANS — 5 GL-perspective KPI cards */}
+      <section className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">GL Rows Matched</p>
+            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+              {summary != null ? summary.glMatched.toLocaleString() : '—'}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">GL Rows Not Matched</p>
+            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+              {summary != null ? summary.glUnmatched.toLocaleString() : '—'}
+            </p>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Match Rate</p>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
-              {summary != null
-                ? `${(summary.match_rate <= 1 ? summary.match_rate * 100 : summary.match_rate).toFixed(1)}%`
-                : '—'}
+              {summary != null ? `${(summary.matchRate * 100).toFixed(1)}%` : '—'}
             </p>
           </CardContent>
         </Card>
@@ -332,7 +442,7 @@ export function HighLevelAnalysis() {
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Matched Amount</p>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
               {summary != null
-                ? `$${summary.matched_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                ? `$${summary.matchedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                 : '—'}
             </p>
           </CardContent>
@@ -342,32 +452,87 @@ export function HighLevelAnalysis() {
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Unmatched Amount</p>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
               {summary != null
-                ? `$${summary.unmatched_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                ? `$${summary.unmatchedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                 : '—'}
             </p>
           </CardContent>
         </Card>
       </section>
 
-      {/* 2. Funnel */}
+      {/* 2. Match Breakdown — horizontal stacked bar */}
       <Card>
         <CardHeader>
-          <CardTitle>Matching Funnel</CardTitle>
-          <CardDescription>Flow from total transactions through match phases to unmatched.</CardDescription>
+          <CardTitle>Match Breakdown</CardTitle>
+          <CardDescription>
+            GL row distribution across match phases (total: {glTotal.toLocaleString()} GL rows).
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <MatchingFunnel data={funnelData} />
+        <CardContent className="space-y-4">
+          {/* Stacked bar */}
+          <div className="flex h-10 overflow-hidden rounded-lg">
+            {chartData.map((seg) => {
+              const pct = glTotal > 0 ? (seg.count / glTotal) * 100 : 0
+              if (pct < 0.2) return null
+              return (
+                <div
+                  key={seg.name}
+                  style={{ width: `${pct}%`, backgroundColor: seg.color }}
+                  className="flex items-center justify-center"
+                  title={`${seg.name}: ${seg.count} rows`}
+                >
+                  {pct > 7 && (
+                    <span className="text-xs font-semibold text-white">
+                      {Math.round(pct)}%
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Legend */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+            {chartData.map((seg) => (
+              <div key={seg.name} className="flex items-start gap-2">
+                <div
+                  className="mt-0.5 h-3 w-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: seg.color }}
+                />
+                <div>
+                  <p className="text-sm font-medium text-foreground">{seg.name}</p>
+                  <p className="text-xs text-muted-foreground">{seg.count.toLocaleString()} rows</p>
+                  <p className="text-xs text-muted-foreground">{fmtAmount(seg.amount)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
       {/* 3. Narrative */}
       <Card>
         <CardHeader>
-          <CardTitle>Reconciliation Summary</CardTitle>
-          <CardDescription>Overview of reconciliation outcome.</CardDescription>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle>Reconciliation Summary</CardTitle>
+              <CardDescription>AI-generated overview of processing, results, and improvement suggestions.</CardDescription>
+            </div>
+            {!narrativeLoading && (
+              <Button variant="ghost" size="sm" onClick={fetchNarrative} title="Regenerate summary">
+                <RefreshCw className="size-3.5" aria-hidden />
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
-          <p className="text-sm leading-relaxed text-foreground whitespace-pre-line">{narrative}</p>
+          {narrativeLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Generating AI summary…
+            </div>
+          ) : (
+            <p className="text-sm leading-relaxed text-foreground whitespace-pre-line">{narrative}</p>
+          )}
         </CardContent>
       </Card>
 
@@ -379,7 +544,7 @@ export function HighLevelAnalysis() {
             Review and override matches. Expand a row for full details and actions.
             {consolidation && (
               <span className="ml-2 text-muted-foreground">
-                ({consolidation.summary.total_match_count.toLocaleString()} total matches)
+                ({matches.length.toLocaleString()} total matches)
               </span>
             )}
           </CardDescription>
@@ -399,7 +564,11 @@ export function HighLevelAnalysis() {
                   max={100}
                   value={filters.confidenceMin}
                   onChange={(e) => setFilters(f => ({ ...f, confidenceMin: Number(e.target.value) }))}
-                  className="h-2 w-24 rounded-full bg-muted accent-primary md:w-32"
+                  className="h-2 w-24 rounded-full md:w-32"
+                  style={{
+                    appearance: 'none',
+                    background: `linear-gradient(to right, #e5e7eb ${filters.confidenceMin}%, #166534 ${filters.confidenceMin}%)`,
+                  }}
                 />
                 <span className="text-xs tabular-nums text-muted-foreground">{filters.confidenceMin}%</span>
               </div>
@@ -437,22 +606,28 @@ export function HighLevelAnalysis() {
             </div>
           </div>
 
-          {/* Bulk Action Toolbar */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground mr-1">
-              {filteredData.length.toLocaleString()} rows
-            </span>
-            <Button size="sm" variant="outline" onClick={handleExpandAll}>Expand All</Button>
-            <Button size="sm" variant="outline" onClick={handleCollapseAll}>Collapse All</Button>
-            <Button size="sm" variant="outline" onClick={handleAcceptAll}>
-              <Check className="size-3.5 mr-1" aria-hidden />
-              Accept All
-            </Button>
-            <Button size="sm" variant="outline"
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={handleRejectAll}>
-              <XCircle className="size-3.5 mr-1" aria-hidden />
-              Reject All
+          {/* Bulk Action Toolbar + Process Updates button (right-aligned) */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground mr-1">
+                {filteredData.length.toLocaleString()} rows
+              </span>
+              <Button size="sm" variant="outline" onClick={handleExpandAll}>Expand All</Button>
+              <Button size="sm" variant="outline" onClick={handleCollapseAll}>Collapse All</Button>
+              <Button size="sm" variant="outline" onClick={handleAcceptAll}>
+                <Check className="size-3.5 mr-1" aria-hidden />
+                Accept All
+              </Button>
+              <Button size="sm" variant="outline"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={handleRejectAll}>
+                <XCircle className="size-3.5 mr-1" aria-hidden />
+                Reject All
+              </Button>
+            </div>
+            <Button size="sm" onClick={() => navigate('/detailed-analysis')}>
+              Process Updates &amp; View Detailed Analysis
+              <ArrowRight className="size-4 ml-1" aria-hidden />
             </Button>
           </div>
 
@@ -496,46 +671,58 @@ export function HighLevelAnalysis() {
                             <div className="space-y-4">
                               <div className="grid gap-4 text-sm md:grid-cols-2">
                                 <div>
-                                  <p className="mb-2 font-medium text-foreground">General Ledger (full)</p>
-                                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                                    <dt>Entity</dt>
-                                    <dd className="font-mono">{row.original.gl_entity}</dd>
-                                    <dt>Vendor</dt>
-                                    <dd className="font-mono">{row.original.gl_vendor}</dd>
-                                    <dt>Date</dt>
-                                    <dd className="font-mono">{row.original.gl_date}</dd>
-                                    <dt>Amount</dt>
-                                    <dd className="font-mono">
-                                      {row.original.gl_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                    </dd>
-                                    {row.original.gl_ref && (
-                                      <>
-                                        <dt>Ref</dt>
-                                        <dd className="font-mono">{row.original.gl_ref}</dd>
-                                      </>
-                                    )}
-                                  </dl>
+                                  <p className="mb-2 font-medium text-foreground">
+                                    General Ledger {row.original.gl_records.length > 1 ? `(${row.original.gl_records.length} records)` : '(full)'}
+                                  </p>
+                                  <div className="space-y-3">
+                                    {row.original.gl_records.map((rec, idx) => (
+                                      <dl key={idx} className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground rounded border border-border/50 p-2 bg-background/50">
+                                        <dt>Entity</dt>
+                                        <dd className="font-mono">{_field(rec, 'entity')}</dd>
+                                        <dt>Vendor</dt>
+                                        <dd className="font-mono">{_field(rec, 'vendor_name', 'Vendor_Normalized', 'vendor')}</dd>
+                                        <dt>Date</dt>
+                                        <dd className="font-mono">{_field(rec, 'transaction_date', 'date')}</dd>
+                                        <dt>Amount</dt>
+                                        <dd className="font-mono">
+                                          {Number(rec.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        </dd>
+                                        {(_field(rec, 'gl_id', 'ref')) && (
+                                          <>
+                                            <dt>Ref</dt>
+                                            <dd className="font-mono">{_field(rec, 'gl_id', 'ref')}</dd>
+                                          </>
+                                        )}
+                                      </dl>
+                                    ))}
+                                  </div>
                                 </div>
                                 <div>
-                                  <p className="mb-2 font-medium text-foreground">Subledger (full)</p>
-                                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                                    <dt>Entity</dt>
-                                    <dd className="font-mono">{row.original.sl_entity}</dd>
-                                    <dt>Vendor</dt>
-                                    <dd className="font-mono">{row.original.sl_vendor}</dd>
-                                    <dt>Date</dt>
-                                    <dd className="font-mono">{row.original.sl_date}</dd>
-                                    <dt>Amount</dt>
-                                    <dd className="font-mono">
-                                      {row.original.sl_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                    </dd>
-                                    {row.original.sl_ref && (
-                                      <>
-                                        <dt>Ref</dt>
-                                        <dd className="font-mono">{row.original.sl_ref}</dd>
-                                      </>
-                                    )}
-                                  </dl>
+                                  <p className="mb-2 font-medium text-foreground">
+                                    Subledger {row.original.sl_records.length > 1 ? `(${row.original.sl_records.length} records)` : '(full)'}
+                                  </p>
+                                  <div className="space-y-3">
+                                    {row.original.sl_records.map((rec, idx) => (
+                                      <dl key={idx} className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground rounded border border-border/50 p-2 bg-background/50">
+                                        <dt>Entity</dt>
+                                        <dd className="font-mono">{_field(rec, 'entity')}</dd>
+                                        <dt>Vendor</dt>
+                                        <dd className="font-mono">{_field(rec, 'vendor_name', 'Vendor_Normalized', 'vendor')}</dd>
+                                        <dt>Date</dt>
+                                        <dd className="font-mono">{_field(rec, 'transaction_date', 'date')}</dd>
+                                        <dt>Amount</dt>
+                                        <dd className="font-mono">
+                                          {Number(rec.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        </dd>
+                                        {(_field(rec, 'subledger_id', 'ref')) && (
+                                          <>
+                                            <dt>Ref</dt>
+                                            <dd className="font-mono">{_field(rec, 'subledger_id', 'ref')}</dd>
+                                          </>
+                                        )}
+                                      </dl>
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
                               <p className="text-xs text-muted-foreground">
@@ -545,10 +732,6 @@ export function HighLevelAnalysis() {
                                 <Button size="sm" variant="default" onClick={() => handleAccept(row.original.id)}>
                                   <Check className="size-3.5" aria-hidden />
                                   Accept Match
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => handleOverride(row.original.id)}>
-                                  <Edit3 className="size-3.5" aria-hidden />
-                                  Override Match
                                 </Button>
                                 <Button size="sm" variant="outline"
                                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -570,13 +753,6 @@ export function HighLevelAnalysis() {
         </CardContent>
       </Card>
 
-      {/* Footer CTA */}
-      <div className="flex items-center justify-end border-t pt-6">
-        <Button size="lg" onClick={() => navigate('/detailed-analysis')}>
-          Process Updates &amp; View Detailed Analysis
-          <ArrowRight className="size-4" aria-hidden />
-        </Button>
-      </div>
     </PageLayout>
   )
 }

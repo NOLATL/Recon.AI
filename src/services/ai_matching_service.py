@@ -1,51 +1,100 @@
 """
 AI Matching Service — Phase 6: probabilistic_review_complete → ai_suggested
 
-Stub implementation — no live LLM API calls.
+Uses OpenAI to suggest matches from the residual pool.
+Advisory only: the residual pool is NEVER modified by this service.
 
-Advisory only: this service NEVER mutates the residual pool. It only reads
-the residual and produces ranked suggestions for human review.
+Grouping strategy — per (entity, Vendor_Normalized):
+  Within each entity, records are further sub-grouped by normalized vendor name.
+  Each LLM call receives only the GL and Sub records sharing the same entity AND
+  vendor — keeping prompts small and preventing cross-vendor hallucinations.
+  Records whose normalized vendor name has no counterpart on the other side are
+  skipped (the AI cannot match what has nothing to compare against).
 
-Algorithm (stub):
-  1. Group residual records by entity (exact match required).
-  2. Within each entity group, generate 1:1 candidate pairs.
-  3. Compute ai_confidence_score using a weighted similarity formula with
-     wider tolerances than the probabilistic layer.
-  4. Suppress pairs below AI_MIN_CONFIDENCE.
-  5. Sort by (materiality DESC, ai_confidence_score DESC).
+N:M grouping is fully supported:
+  1:1 → one_to_one
+  N:1 → many_to_one
+  1:N → one_to_many
+  N:M → many_to_many
 
-Confidence formula (same weights as probabilistic, but entity is implicit):
-  ai_confidence = 0.40 * vendor_similarity
-                + 0.35 * amount_similarity
-                + 0.15 * date_similarity
-                + 0.10 * entity_similarity   (always 1.0 — same-entity grouping)
+Confidence scale: 0.0–1.0. Minimum: AI_MIN_CONFIDENCE (0.40).
 
-Date tolerance: AI_DATE_TOLERANCE_DAYS = 90 (wider than probabilistic's 60).
-Amount: NO blocking — the AI evaluates pairs the probabilistic layer skipped.
-Materiality proxy: abs(GL amount) — larger transactions rank higher.
+On LLM failure (network, JSON parse, etc.) for any group:
+  - That group is silently skipped with a warning log.
+  - The session is never failed — this is an advisory-only layer.
 
-Snapshot must capture: model_used, prompt_version, suggestion_count.
+Model: gpt-4o-mini (cost-effective, fully capable for structured JSON).
+Prompt version: v2.0.0 (stored in snapshot for audit reproducibility).
 """
 
+import json
+import logging
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from dataclasses import dataclass
+from typing import Any, Dict, List, Set
 
 import pandas as pd
 from rapidfuzz import fuzz
+
+from src.llm.openai_client import OpenAIClient
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_AI_MODEL:       str   = "stub-v1"
-DEFAULT_PROMPT_VERSION: str   = "v1.0.0"
-AI_DATE_TOLERANCE_DAYS: int   = 90       # wider than probabilistic's 60
-AI_MIN_CONFIDENCE:      float = 0.40     # suppress very low-confidence pairs
+DEFAULT_AI_MODEL:        str   = "gpt-4o-mini"
+DEFAULT_PROMPT_VERSION:  str   = "v2.0.0"
+AI_MIN_CONFIDENCE:       float = 0.40
+MAX_RECORDS_PER_GROUP:   int   = 20   # per (entity, vendor) call — controls token cost
 
 _REQUIRED_GL_COLS  = {"gl_id", "Vendor_Normalized", "amount", "transaction_date", "entity"}
 _REQUIRED_SUB_COLS = {"subledger_id", "Vendor_Normalized", "amount", "transaction_date", "entity"}
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# System prompt (versioned — stored in snapshot for reproducibility)
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT = """\
+You are a financial reconciliation specialist.
+
+You will receive GL records and Subledger records that belong to the SAME legal \
+entity and SAME vendor. Rule-based algorithms did not confidently match them — \
+typically due to timing differences, partial payments, or accrual adjustments.
+
+Your task: identify which GL records match which Subledger records.
+
+Matching criteria:
+- Amount: When entity, vendor, and date align, you MUST suggest a match if amount \
+variance is 25% or less — do not return empty. Partial payments and accruals \
+commonly have 10–25% variance. Example: GL $1000 vs Sub $1150 (15% diff) = valid \
+match, suggest confidence 0.70–0.85. One GL may cover multiple Sub lines or vice versa.
+- Date: within 90 days is acceptable; use judgement for borderline cases
+- A GL record MAY match multiple Subledger records (1:N) if their amounts sum \
+close to the GL amount
+- Multiple GL records MAY match one Subledger record (N:1) if their amounts sum \
+close to the Sub amount
+
+Rules:
+- Each record ID may appear in at most ONE match in your output
+- Only suggest matches with confidence >= 0.40
+- If no match meets that bar, return an empty matches array
+- Return ONLY the JSON object — no explanation, no markdown, no text outside the JSON
+
+Output format:
+{
+  "matches": [
+    {
+      "gl_ids":     ["<gl_id>"],
+      "sub_ids":    ["<subledger_id>"],
+      "confidence": <float 0.0–1.0>,
+      "reasoning":  "<one sentence for the reviewer>"
+    }
+  ]
+}"""
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +103,7 @@ _REQUIRED_SUB_COLS = {"subledger_id", "Vendor_Normalized", "amount", "transactio
 
 @dataclass
 class AIMatchRecord:
-    """One AI-generated suggestion (pending human review)."""
+    """One AI-generated match suggestion (pending human review)."""
     match_id:            str
     record_ids_A:        List[str]   # GL IDs
     record_ids_B:        List[str]   # Subledger IDs
@@ -95,71 +144,85 @@ class AIMatchingResult:
 
 
 # ---------------------------------------------------------------------------
-# Similarity helpers
+# Internal helpers
 # ---------------------------------------------------------------------------
 
-def _vendor_sim(norm_a: str, norm_b: str) -> float:
-    return fuzz.token_sort_ratio(str(norm_a), str(norm_b)) / 100.0
+def _grouping_type(n_gl: int, n_sub: int) -> str:
+    if n_gl == 1 and n_sub == 1:
+        return "one_to_one"
+    if n_gl > 1 and n_sub == 1:
+        return "many_to_one"
+    if n_gl == 1 and n_sub > 1:
+        return "one_to_many"
+    return "many_to_many"
 
 
-def _amount_sim(amount_a: float, amount_b: float) -> float:
-    base = max(abs(amount_a), abs(amount_b), 0.01)
-    return max(0.0, 1.0 - abs(amount_a - amount_b) / base)
+def _materiality(gl_ids: List[str], gl_amount_lookup: Dict[str, float]) -> float:
+    return round(sum(abs(gl_amount_lookup.get(gid, 0.0)) for gid in gl_ids), 2)
 
 
-def _date_sim(date_a, date_b) -> float:
-    diff = abs((pd.to_datetime(date_a) - pd.to_datetime(date_b)).days)
-    return max(0.0, 1.0 - diff / AI_DATE_TOLERANCE_DAYS)
+def _supporting_features(
+    gl_ids:     List[str],
+    sub_ids:    List[str],
+    gl_lookup:  Dict[str, dict],
+    sub_lookup: Dict[str, dict],
+) -> Dict[str, Any]:
+    gl  = gl_lookup[gl_ids[0]]
+    sub = sub_lookup[sub_ids[0]]
 
+    gl_total  = sum(gl_lookup[gid]["amount"] for gid in gl_ids)
+    sub_total = sum(sub_lookup[sid]["amount"] for sid in sub_ids)
 
-def _ai_confidence(gl_row, sub_row) -> float:
-    """Weighted similarity — entity component is always 1.0 (same-entity grouping)."""
-    vendor  = _vendor_sim(gl_row["Vendor_Normalized"], sub_row["Vendor_Normalized"])
-    amount  = _amount_sim(float(gl_row["amount"]),     float(sub_row["amount"]))
-    date    = _date_sim(gl_row["transaction_date"],    sub_row["transaction_date"])
-    return round(0.40 * vendor + 0.35 * amount + 0.15 * date + 0.10 * 1.0, 4)
+    vendor_sim      = round(fuzz.token_sort_ratio(
+        str(gl["Vendor_Normalized"]), str(sub["Vendor_Normalized"])) / 100.0, 4)
+    amount_diff     = round(abs(gl_total - sub_total), 2)
+    base            = max(abs(gl_total), abs(sub_total), 0.01)
+    amount_diff_pct = round(amount_diff / base * 100, 2)
+    diff_days       = abs(
+        (pd.to_datetime(gl["transaction_date"])
+         - pd.to_datetime(sub["transaction_date"])).days
+    )
 
-
-def _materiality(gl_row) -> float:
-    return round(abs(float(gl_row["amount"])), 2)
-
-
-def _supporting_features(gl_row, sub_row) -> Dict[str, Any]:
-    gl_amount   = float(gl_row["amount"])
-    sub_amount  = float(sub_row["amount"])
-    diff_days   = abs((pd.to_datetime(gl_row["transaction_date"])
-                       - pd.to_datetime(sub_row["transaction_date"])).days)
     return {
-        "vendor_similarity": round(_vendor_sim(
-            gl_row["Vendor_Normalized"], sub_row["Vendor_Normalized"]), 4),
-        "amount_diff":      round(abs(gl_amount - sub_amount), 2),
-        "amount_diff_pct":  round(
-            abs(gl_amount - sub_amount)
-            / max(abs(gl_amount), abs(sub_amount), 0.01) * 100, 2),
-        "date_diff_days":   diff_days,
-        "entity":           str(gl_row["entity"]),
+        "vendor_similarity": vendor_sim,
+        "amount_diff":       amount_diff,
+        "amount_diff_pct":   amount_diff_pct,
+        "date_diff_days":    diff_days,
+        "entity":            str(gl["entity"]),
     }
 
 
-def _reasoning_narrative(gl_id: str, sub_id: str, gl_row, sub_row,
-                          confidence: float) -> str:
-    gl_amount  = float(gl_row["amount"])
-    sub_amount = float(sub_row["amount"])
-    amount_diff = abs(gl_amount - sub_amount)
-    diff_days   = abs((pd.to_datetime(gl_row["transaction_date"])
-                       - pd.to_datetime(sub_row["transaction_date"])).days)
-    vendor_pct  = round(
-        fuzz.token_sort_ratio(
-            str(gl_row["Vendor_Normalized"]), str(sub_row["Vendor_Normalized"])),
-        1,
+def _call_llm(
+    entity:      str,
+    vendor:      str,
+    gl_records:  list,
+    sub_records: list,
+    ai_model:    str,
+) -> List[dict]:
+    """
+    Call OpenAI for one (entity, vendor) group.
+    Returns the parsed matches list, or [] on any failure.
+    Never raises — the advisory layer must not crash the session.
+    """
+    user_prompt = (
+        f"Entity: {entity}\n"
+        f"Vendor: {vendor}\n\n"
+        f"GL Records:\n{json.dumps(gl_records, indent=2)}\n\n"
+        f"Subledger Records:\n{json.dumps(sub_records, indent=2)}\n\n"
+        "Suggest matches."
     )
-    return (
-        f"GL record {gl_id} ('{gl_row['Vendor_Normalized']}', ${gl_amount:,.2f}) and "
-        f"Sub record {sub_id} ('{sub_row['Vendor_Normalized']}', ${sub_amount:,.2f}) "
-        f"share entity '{gl_row['entity']}' with {vendor_pct}% vendor name similarity. "
-        f"Amount difference: ${amount_diff:,.2f} over {diff_days} day(s). "
-        f"AI confidence: {confidence:.1%}. Requires human review before acceptance."
-    )
+    print(f"[AI DEBUG] Calling LLM: entity={entity!r} vendor={vendor!r} gl={len(gl_records)} sub={len(sub_records)}")
+    try:
+        client = OpenAIClient(model=ai_model)
+        result = client.generate_json(_SYSTEM_PROMPT, user_prompt)
+        matches = result.get("matches", [])
+        print(f"[AI DEBUG] LLM response: matches_count={len(matches)} raw={json.dumps(result)[:800]}")
+        return matches
+    except Exception as exc:
+        logger.warning(
+            "AI matching call failed for entity=%s vendor=%s: %s", entity, vendor, exc
+        )
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +240,17 @@ def run_ai_matching(
 
     Advisory only — the residual pool is never modified.
 
+    Groups records by (entity, Vendor_Normalized) and makes one LLM call per
+    group. Each record ID may appear in at most one suggestion (deduplicated
+    across groups in score order after ranking).
+
     Args:
         residual_gl:    GL residual DataFrame. Required columns:
                           gl_id, Vendor_Normalized, amount, transaction_date, entity
         residual_sub:   Sub residual DataFrame. Required columns:
                           subledger_id, Vendor_Normalized, amount, transaction_date, entity
-        ai_model:       Model identifier recorded in snapshot (stub: "stub-v1").
-        prompt_version: Prompt version recorded in snapshot.
+        ai_model:       Model ID passed to OpenAIClient.
+        prompt_version: Version tag stored in snapshot for reproducibility.
 
     Returns:
         AIMatchingResult — suggestions ranked by materiality DESC, confidence DESC.
@@ -203,53 +270,139 @@ def run_ai_matching(
             prompt_version=prompt_version,
         )
 
-    # Column validation
-    if len(residual_gl) > 0:
+    if total_gl > 0:
         missing = _REQUIRED_GL_COLS - set(residual_gl.columns)
         if missing:
             raise ValueError(f"GL residual missing required columns: {missing}")
-    if len(residual_sub) > 0:
+    if total_sub > 0:
         missing = _REQUIRED_SUB_COLS - set(residual_sub.columns)
         if missing:
             raise ValueError(f"Sub residual missing required columns: {missing}")
 
-    suggestions: List[AIMatchRecord] = []
+    # Build ID-keyed lookup dicts for validation and feature computation.
+    gl_lookup: Dict[str, dict] = {}
+    for _, row in residual_gl.iterrows():
+        gid = str(row["gl_id"])
+        gl_lookup[gid] = {
+            "gl_id":             gid,
+            "Vendor_Normalized": str(row["Vendor_Normalized"]),
+            "amount":            float(row["amount"]),
+            "transaction_date":  str(row["transaction_date"]),
+            "entity":            str(row["entity"]),
+        }
 
-    # Group by entity — AI only compares records within the same entity
+    sub_lookup: Dict[str, dict] = {}
+    for _, row in residual_sub.iterrows():
+        sid = str(row["subledger_id"])
+        sub_lookup[sid] = {
+            "subledger_id":      sid,
+            "Vendor_Normalized": str(row["Vendor_Normalized"]),
+            "amount":            float(row["amount"]),
+            "transaction_date":  str(row["transaction_date"]),
+            "entity":            str(row["entity"]),
+        }
+
+    gl_amount_lookup: Dict[str, float] = {gid: r["amount"] for gid, r in gl_lookup.items()}
+
     entities = sorted(
         set(residual_gl["entity"].dropna().unique()) &
         set(residual_sub["entity"].dropna().unique())
     )
 
+    suggestions:  List[AIMatchRecord] = []
+    used_gl_ids:  Set[str] = set()
+    used_sub_ids: Set[str] = set()
+
     for entity in entities:
         gl_e  = residual_gl[residual_gl["entity"] == entity]
         sub_e = residual_sub[residual_sub["entity"] == entity]
 
-        for _, gl_row in gl_e.iterrows():
-            gl_id = str(gl_row["gl_id"])
-            for _, sub_row in sub_e.iterrows():
-                sub_id     = str(sub_row["subledger_id"])
-                confidence = _ai_confidence(gl_row, sub_row)
+        # Vendor intersection: only groups where both sides have records.
+        vendors = sorted(
+            set(gl_e["Vendor_Normalized"].dropna().unique()) &
+            set(sub_e["Vendor_Normalized"].dropna().unique())
+        )
 
-                if confidence < AI_MIN_CONFIDENCE:
+        for vendor in vendors:
+            gl_v  = gl_e[gl_e["Vendor_Normalized"] == vendor].head(MAX_RECORDS_PER_GROUP)
+            sub_v = sub_e[sub_e["Vendor_Normalized"] == vendor].head(MAX_RECORDS_PER_GROUP)
+
+            # Exclude records already consumed by a prior group.
+            gl_v  = gl_v[~gl_v["gl_id"].astype(str).isin(used_gl_ids)]
+            sub_v = sub_v[~sub_v["subledger_id"].astype(str).isin(used_sub_ids)]
+
+            if gl_v.empty or sub_v.empty:
+                continue
+
+            valid_gl_ids  = set(gl_v["gl_id"].astype(str))
+            valid_sub_ids = set(sub_v["subledger_id"].astype(str))
+
+            gl_records = [
+                {
+                    "gl_id":  str(r["gl_id"]),
+                    "vendor": str(r["Vendor_Normalized"]),
+                    "amount": float(r["amount"]),
+                    "date":   str(r["transaction_date"]),
+                }
+                for _, r in gl_v.iterrows()
+            ]
+            sub_records = [
+                {
+                    "subledger_id": str(r["subledger_id"]),
+                    "vendor":       str(r["Vendor_Normalized"]),
+                    "amount":       float(r["amount"]),
+                    "date":         str(r["transaction_date"]),
+                }
+                for _, r in sub_v.iterrows()
+            ]
+
+            raw_matches = _call_llm(entity, vendor, gl_records, sub_records, ai_model)
+
+            for raw in raw_matches:
+                try:
+                    gl_ids     = [str(x) for x in raw.get("gl_ids",  [])]
+                    sub_ids    = [str(x) for x in raw.get("sub_ids", [])]
+                    confidence = float(raw.get("confidence", 0.0))
+                    reasoning  = str(raw.get("reasoning", ""))
+
+                    if not gl_ids or not sub_ids:
+                        continue
+                    if confidence < AI_MIN_CONFIDENCE:
+                        continue
+                    confidence = min(1.0, max(0.0, confidence))
+
+                    # All IDs must belong to this (entity, vendor) group.
+                    if not all(gid in valid_gl_ids  for gid in gl_ids):
+                        continue
+                    if not all(sid in valid_sub_ids for sid in sub_ids):
+                        continue
+
+                    # Cross-group deduplication — each ID appears in at most one match.
+                    if any(gid in used_gl_ids  for gid in gl_ids):
+                        continue
+                    if any(sid in used_sub_ids for sid in sub_ids):
+                        continue
+
+                    used_gl_ids.update(gl_ids)
+                    used_sub_ids.update(sub_ids)
+
+                    suggestions.append(AIMatchRecord(
+                        match_id=            str(uuid.uuid4()),
+                        record_ids_A=        gl_ids,
+                        record_ids_B=        sub_ids,
+                        ai_confidence_score= round(confidence, 4),
+                        materiality=         _materiality(gl_ids, gl_amount_lookup),
+                        supporting_features= _supporting_features(
+                            gl_ids, sub_ids, gl_lookup, sub_lookup
+                        ),
+                        reasoning_narrative= reasoning,
+                        grouping_type=       _grouping_type(len(gl_ids), len(sub_ids)),
+                    ))
+                except Exception as exc:
+                    logger.warning("Skipping invalid AI suggestion: %s — %s", raw, exc)
                     continue
 
-                mat      = _materiality(gl_row)
-                features = _supporting_features(gl_row, sub_row)
-                narrative = _reasoning_narrative(gl_id, sub_id, gl_row, sub_row,
-                                                 confidence)
-
-                suggestions.append(AIMatchRecord(
-                    match_id=            str(uuid.uuid4()),
-                    record_ids_A=        [gl_id],
-                    record_ids_B=        [sub_id],
-                    ai_confidence_score= confidence,
-                    materiality=         mat,
-                    supporting_features= features,
-                    reasoning_narrative= narrative,
-                ))
-
-    # Rank: materiality DESC, then confidence DESC
+    # Rank: materiality DESC, then confidence DESC.
     suggestions.sort(key=lambda s: (-s.materiality, -s.ai_confidence_score))
 
     return AIMatchingResult(

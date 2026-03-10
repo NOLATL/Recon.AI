@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/card'
 import {
   getSessionStatus,
+  getConsolidation,
   confirmDeterministicReview,
   runProbabilistic,
   confirmProbabilisticReview,
@@ -81,6 +82,7 @@ export function Matching() {
   )
   const [phaseStatuses, setPhaseStatuses] = useState<PhaseStatus[]>(['queued', 'queued', 'queued'])
   const [recordCounts, setRecordCounts] = useState([0, 0, 0])
+  const [amountsByPhase, setAmountsByPhase] = useState([0, 0, 0])
   const [currentState, setCurrentState] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
@@ -178,11 +180,68 @@ export function Matching() {
 
         setCurrentState(res.current_state)
 
-        const summary    = res.matching_summary ?? {}
-        const detCount   = summary.deterministic ?? 0
-        const probCount  = summary.probabilistic ?? 0
-        const aiCount    = summary.ai_suggested ?? summary.final ?? 0
-        setRecordCounts([detCount, probCount, aiCount])
+        // When in terminal state, use consolidation for accurate per-phase breakdown.
+        // Session status has ai_suggested: 0 after AI matches move to final bucket.
+        if (TERMINAL_STATES.has(res.current_state)) {
+          try {
+            const cons = await getConsolidation(sessionId)
+            if (!cancelled) {
+              const s = cons.summary ?? {}
+              const glAmtMap = new Map<string, number>()
+              ;(cons.gl_records ?? []).forEach((r: Record<string, unknown>) => {
+                const id = String(r.gl_id ?? '')
+                if (id) glAmtMap.set(id, Number(r.amount ?? 0))
+              })
+              const amtByLayer = { deterministic: 0, probabilistic: 0, ai: 0 }
+              ;(cons.final_matches ?? []).forEach((m: Record<string, unknown>) => {
+                const layer = String(m.layer ?? '')
+                const glIds = (m.record_ids_A as string[]) ?? []
+                if (layer in amtByLayer) {
+                  amtByLayer[layer as keyof typeof amtByLayer] += glIds.reduce(
+                    (sum, id) => sum + (glAmtMap.get(id) ?? 0),
+                    0
+                  )
+                }
+              })
+              setRecordCounts([
+                s.deterministic_match_count ?? 0,
+                s.probabilistic_match_count ?? 0,
+                s.ai_match_count ?? 0,
+              ])
+              setAmountsByPhase([
+                amtByLayer.deterministic,
+                amtByLayer.probabilistic,
+                amtByLayer.ai,
+              ])
+            }
+          } catch {
+            // Fall back to session status if consolidation unavailable
+            const summary = res.matching_summary ?? {}
+            const amounts = res.matching_amount_summary ?? {}
+            setRecordCounts([
+              summary.deterministic ?? 0,
+              summary.probabilistic ?? 0,
+              summary.ai_suggested ?? 0,
+            ])
+            setAmountsByPhase([
+              amounts.deterministic ?? 0,
+              amounts.probabilistic ?? 0,
+              amounts.ai_suggested ?? 0,
+            ])
+          }
+        } else {
+          const summary    = res.matching_summary ?? {}
+          const amounts    = res.matching_amount_summary ?? {}
+          const detCount   = summary.deterministic ?? 0
+          const probCount  = summary.probabilistic ?? 0
+          const aiCount    = summary.ai_suggested ?? summary.final ?? 0
+          setRecordCounts([detCount, probCount, aiCount])
+          setAmountsByPhase([
+            amounts.deterministic ?? 0,
+            amounts.probabilistic ?? 0,
+            amounts.ai_suggested ?? 0,
+          ])
+        }
 
         // Derive display status for each of the three phases
         const nextStatuses: PhaseStatus[] = ['queued', 'queued', 'queued']
@@ -228,6 +287,7 @@ export function Matching() {
     currentState === 'final_consolidated' ||
     currentState === 'ai_review_complete'
   const totalProcessed = recordCounts.reduce((a, b) => a + b, 0)
+  const totalAmount = amountsByPhase.reduce((a, b) => a + b, 0)
   const currentPhaseIndex = phaseStatuses.findIndex((s) => s === 'running')
   const currentPhaseLabel =
     currentPhaseIndex >= 0 ? PHASES[currentPhaseIndex].label : null
@@ -291,14 +351,21 @@ export function Matching() {
                   <PhaseStatusIcon status={phaseStatuses[i]} />
                   <span className="font-medium text-foreground">{phase.label}</span>
                 </div>
-                <span className="text-sm tabular-nums text-muted-foreground">
-                  {phaseStatuses[i] === 'complete'
-                    ? recordCounts[i].toLocaleString()
-                    : phaseStatuses[i] === 'running'
-                      ? `${recordCounts[i].toLocaleString()} processed`
-                      : '—'}{' '}
-                  records
-                </span>
+                <div className="flex items-center gap-4 text-sm tabular-nums text-muted-foreground">
+                  {phaseStatuses[i] !== 'queued' && (
+                    <span className="font-medium text-foreground">
+                      ${amountsByPhase[i].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  )}
+                  <span>
+                    {phaseStatuses[i] === 'complete'
+                      ? recordCounts[i].toLocaleString()
+                      : phaseStatuses[i] === 'running'
+                        ? `${recordCounts[i].toLocaleString()} processed`
+                        : '—'}{' '}
+                    records
+                  </span>
+                </div>
               </div>
               <ProgressBar
                 value={phaseStatuses[i] === 'complete' ? 100 : phaseStatuses[i] === 'running' ? 50 : 0}
@@ -316,7 +383,7 @@ export function Matching() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
-              <p className="text-sm text-muted-foreground">Current phase</p>
+              <p className="text-sm text-muted-foreground">Current Status</p>
               <p className="font-medium text-foreground">
                 {currentPhaseLabel ?? (allComplete ? 'Complete' : '—')}
               </p>
@@ -328,9 +395,11 @@ export function Matching() {
               </p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Backend state</p>
-              <p className="font-medium text-foreground font-mono text-sm">
-                {currentState || '—'}
+              <p className="text-sm text-muted-foreground">Total amount processed</p>
+              <p className="text-lg font-semibold tabular-nums text-foreground">
+                {totalAmount > 0
+                  ? `$${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : '—'}
               </p>
             </div>
           </div>

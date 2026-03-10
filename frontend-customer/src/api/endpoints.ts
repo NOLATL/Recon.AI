@@ -448,28 +448,29 @@ export function metricsToFileProfile(
     files[fileKey === "gl" ? "gl" : "subledger"]
   if (!f || typeof f !== "object") return null
 
-  const dateRanges = (f as Record<string, unknown>).date_ranges as Record<string, { min?: string; max?: string }> | undefined
+  const fRec = f as unknown as Record<string, unknown>
+  const dateRanges = fRec.date_ranges as Record<string, { min?: string; max?: string }> | undefined
   const dateRangesObj = dateRanges && typeof dateRanges === "object" ? dateRanges : {}
   const dateCol = Object.keys(dateRangesObj)[0]
   const dr = dateCol ? dateRangesObj[dateCol] : null
 
-  const numDists = (f as Record<string, unknown>).numeric_distributions as Record<string, { sum?: number }> | undefined
+  const numDists = fRec.numeric_distributions as Record<string, { sum?: number }> | undefined
   const numDistsObj = numDists && typeof numDists === "object" ? numDists : {}
   const numCol = Object.keys(numDistsObj).find((k) =>
     String(k).toLowerCase().includes("amount")
   )
   const nd = numCol ? numDistsObj[numCol] : null
 
-  const uniqueVendors = typeof (f as Record<string, unknown>).unique_vendor_count === "number"
-    ? (f as Record<string, number>).unique_vendor_count
+  const uniqueVendors = typeof fRec.unique_vendor_count === "number"
+    ? fRec.unique_vendor_count as number
     : 0
 
-  const rowCount = typeof (f as Record<string, unknown>).row_count === "number"
-    ? (f as Record<string, number>).row_count
+  const rowCount = typeof fRec.row_count === "number"
+    ? fRec.row_count as number
     : 0
 
   // Build ColumnStat array from column_profiles (new backend field)
-  const rawProfiles = (f as Record<string, unknown>).column_profiles as Record<string, Record<string, unknown>> | undefined
+  const rawProfiles = fRec.column_profiles as Record<string, Record<string, unknown>> | undefined
   const column_stats: ColumnStat[] = rawProfiles
     ? Object.entries(rawProfiles).map(([name, p]) => ({
         name,

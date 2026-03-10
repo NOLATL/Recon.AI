@@ -182,7 +182,7 @@ export function DetailedAnalysisExport() {
     })
   }, [notesKey])
 
-  const saveOverride = useCallback((rowId: string, value: string, source: 'gl' | 'sub') => {
+  const saveOverride = useCallback((rowId: string, value: string, _source: 'gl' | 'sub') => {
     setOverrides(prev => {
       const prevIds = splitIds(prev[rowId] ?? '')
       const newIds  = splitIds(value)

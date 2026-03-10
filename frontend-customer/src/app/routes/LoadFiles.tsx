@@ -450,7 +450,7 @@ export function LoadFiles() {
                   {profileResponse.metrics?.files && typeof profileResponse.metrics.files === 'object' && (
                     <div className="space-y-4">
                       {Object.entries(profileResponse.metrics.files).map(([key, file]) => {
-                        const fr = file as Record<string, unknown>
+                        const fr = file as unknown as Record<string, unknown>
                         const rowCount = typeof fr.row_count === 'number' ? fr.row_count : 0
                         const nullCounts = (fr.null_counts as Record<string, number>) ?? {}
                         return (

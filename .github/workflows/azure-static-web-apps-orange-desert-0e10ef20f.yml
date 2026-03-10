@@ -39,21 +39,9 @@ jobs:
 
       - name: Build application
         working-directory: ./frontend-customer
+        env:
+          VITE_API_BASE_URL: https://recon-ai-dev.purpleglacier-5d043d33.westus2.azurecontainerapps.io
         run: npm run build
-
-      - name: Check dist folder size
-        working-directory: ./frontend-customer
-        run: |
-          if [ -d "dist" ]; then
-            echo "✓ dist folder found"
-            du -sh dist
-            find dist -type f | wc -l
-            echo "Total files in dist:"
-          else
-            echo "✗ ERROR: dist folder not found!"
-            ls -la
-            exit 1
-          fi
 
       - name: Build And Deploy
         id: builddeploy
@@ -65,6 +53,7 @@ jobs:
           app_location: "./frontend-customer"
           api_location: ""
           output_location: "dist"
+          skip_app_build: true
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   flexRender,
   getCoreRowModel,
@@ -8,10 +9,9 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table'
-import { Download, Loader2 } from 'lucide-react'
+import { ArrowRight, Loader2 } from 'lucide-react'
 import { PageLayout } from '@/components/layout/PageLayout'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Card,
   CardContent,
@@ -32,9 +32,7 @@ import {
   RECON_SESSION_ID_KEY,
   getConsolidation,
   runConsolidate,
-  runExport,
-  getExportManifest,
-  getExportZipUrl,
+  saveManualOverrides,
   type FinalConsolidationResponse,
 } from '@/api/endpoints'
 
@@ -58,11 +56,6 @@ export interface SubUnmatchedRow {
 
 // ── Editable Cell ─────────────────────────────────────────────────────────────
 
-/**
- * Single-line editable input that keeps itself active while the user types.
- * The parent state is only updated on blur (commit), so intermediate keystrokes
- * never cause the input to lose focus due to re-renders.
- */
 function EditableCell({
   rowId,
   storeKey,
@@ -80,7 +73,6 @@ function EditableCell({
   const [local, setLocal] = useState(committed)
   const prevCommitted = useRef(committed)
 
-  // Sync only when the persisted value changes from outside (initial load)
   useEffect(() => {
     if (prevCommitted.current !== committed) {
       prevCommitted.current = committed
@@ -123,12 +115,13 @@ function parseSubRows(res: FinalConsolidationResponse): SubUnmatchedRow[] {
   }))
 }
 
-function computeGlSummary(rows: GlUnmatchedRow[]) {
-  const totalCount  = rows.length
-  const totalAmount = rows.reduce((s, r) => s + r.amount, 0)
-  const largestAmount = rows.length ? Math.max(...rows.map(r => r.amount)) : 0
+// All summary metrics are GL-perspective only.
+function computeSummary(glRows: GlUnmatchedRow[]) {
+  const totalCount    = glRows.length
+  const totalAmount   = glRows.reduce((s, r) => s + r.amount, 0)
+  const largestAmount = glRows.length ? Math.max(...glRows.map(r => r.amount)) : 0
   const byVendor = new Map<string, number>()
-  for (const r of rows) byVendor.set(r.vendor, (byVendor.get(r.vendor) ?? 0) + r.amount)
+  for (const r of glRows) byVendor.set(r.vendor, (byVendor.get(r.vendor) ?? 0) + r.amount)
   let topVendor = '', topVendorAmount = 0
   byVendor.forEach((sum, vendor) => { if (sum > topVendorAmount) { topVendorAmount = sum; topVendor = vendor } })
   return { totalCount, totalAmount, largestAmount, topVendor, topVendorAmount }
@@ -141,64 +134,45 @@ function saveToStorage(key: string, data: Record<string, string>) {
   try { localStorage.setItem(key, JSON.stringify(data)) } catch { /* quota */ }
 }
 
-const LARGE_AMOUNT_THRESHOLD = 10_000
-
-const EXPORT_ARTIFACTS = [
-  { id: 'gl',         label: 'Uploaded GL Data',                    group: 'data' as const },
-  { id: 'subledger',  label: 'Uploaded Subledger Data',             group: 'data' as const },
-  { id: 'preprocess', label: 'Preprocessing Output',                group: 'data' as const },
-  { id: 'det_in_out', label: 'Deterministic Matching Input/Output', group: 'data' as const },
-  { id: 'prob_in_out',label: 'Probabilistic Matching Input/Output', group: 'data' as const },
-  { id: 'ai_in_out',  label: 'AI Matching Input/Output',            group: 'data' as const },
-  { id: 'final',      label: 'Final Results After Overrides',       group: 'data' as const },
-  { id: 'residual',   label: 'Residual Unmatched Transactions',     group: 'data' as const },
-  { id: 'rejected',   label: 'Rejected Matches',                    group: 'data' as const },
-  { id: 'log',        label: 'Process Log',                         group: 'data' as const },
-  { id: 'pdf',        label: 'Executive Summary PDF',               group: 'narrative' as const },
-] as const
-
-// Maps each artifact ID to the filenames it produces in the export manifest.
-const ARTIFACT_FILES: Record<string, string[]> = {
-  gl:         ['uploaded_gl.csv'],
-  subledger:  ['uploaded_subledger.csv'],
-  preprocess: ['preprocessing_output.csv'],
-  det_in_out: ['deterministic_matches.csv'],
-  prob_in_out:['probabilistic_matches.csv'],
-  ai_in_out:  ['ai_matches.csv'],
-  final:      ['final_results.csv'],
-  residual:   ['residual_unmatched_gl.csv', 'residual_unmatched_sub.csv'],
-  rejected:   ['rejected_matches.csv'],
-  log:        ['process_log_run.csv', 'process_log_steps.csv', 'process_log_ai.csv'],
-  pdf:        ['reconciliation_report.pdf'],
+// Parse a comma-separated override string into an array of trimmed IDs.
+function splitIds(s: string): string[] {
+  return s.split(',').map(x => x.trim()).filter(Boolean)
 }
+
+const LARGE_AMOUNT_THRESHOLD = 10_000
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function DetailedAnalysisExport() {
   const sessionId = localStorage.getItem(RECON_SESSION_ID_KEY) ?? ''
+  const navigate  = useNavigate()
 
-  useEffect(() => {
-    window.scrollTo(0, 0)
-  }, [])
+  useEffect(() => { window.scrollTo(0, 0) }, [])
 
   const [glSorting,  setGlSorting]  = useState<SortingState>([{ id: 'amount', desc: true }])
   const [subSorting, setSubSorting] = useState<SortingState>([{ id: 'amount', desc: true }])
-
-  const [selectedArtifacts, setSelectedArtifacts] = useState<Set<string>>(new Set())
 
   const [glRows,  setGlRows]  = useState<GlUnmatchedRow[]>([])
   const [subRows, setSubRows] = useState<SubUnmatchedRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [exportLoading, setExportLoading] = useState(false)
-  const [exportError,   setExportError]   = useState<string | null>(null)
+  const [finalizing, setFinalizing] = useState(false)
+  const [finalizeError, setFinalizeError] = useState<string | null>(null)
 
   // Notes & overrides — persisted to localStorage keyed by session
   const notesKey     = `recon-${sessionId}-notes`
   const overridesKey = `recon-${sessionId}-overrides`
   const [notes,     setNotes]     = useState<Record<string, string>>(() => loadFromStorage(notesKey))
   const [overrides, setOverrides] = useState<Record<string, string>>(() => loadFromStorage(overridesKey))
+
+  // Debounced overrides for the "after overrides" KPI (500 ms delay so typing
+  // doesn't prematurely deactivate the input while the user is still typing).
+  const [debouncedOverrides, setDebouncedOverrides] = useState(overrides)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedOverrides(overrides), 500)
+    return () => clearTimeout(t)
+  }, [overrides])
 
   const saveNote = useCallback((rowId: string, value: string) => {
     setNotes(prev => {
@@ -208,26 +182,17 @@ export function DetailedAnalysisExport() {
     })
   }, [notesKey])
 
-  /**
-   * Save an override value and keep the other table in sync.
-   * source='gl'  → rowId is a GL row, value contains Sub IDs
-   * source='sub' → rowId is a Sub row, value contains GL IDs
-   */
   const saveOverride = useCallback((rowId: string, value: string, source: 'gl' | 'sub') => {
     setOverrides(prev => {
-      const split = (s: string) => s.split(',').map(x => x.trim()).filter(Boolean)
-      const prevIds = split(prev[rowId] ?? '')
-      const newIds  = split(value)
-
+      const prevIds = splitIds(prev[rowId] ?? '')
+      const newIds  = splitIds(value)
       const added   = newIds.filter(id => !prevIds.includes(id))
       const removed = prevIds.filter(id => !newIds.includes(id))
 
       const next = { ...prev, [rowId]: value }
 
-      // For each newly linked peer, add this row's ID to the peer's override list.
-      // For each de-linked peer, remove this row's ID from the peer's override list.
       const updatePeer = (peerId: string, ownId: string, add: boolean) => {
-        const peerIds = split(next[peerId] ?? '')
+        const peerIds = splitIds(next[peerId] ?? '')
         if (add && !peerIds.includes(ownId)) {
           next[peerId] = [...peerIds, ownId].join(', ')
         } else if (!add) {
@@ -279,9 +244,45 @@ export function DetailedAnalysisExport() {
     return () => { cancelled = true }
   }, [sessionId])
 
-  // ── Summary ─────────────────────────────────────────────────────────────────
+  // ── Before-overrides summary (uses live data) ────────────────────────────────
 
-  const summary = useMemo(() => computeGlSummary(glRows), [glRows])
+  const summaryBefore = useMemo(() => computeSummary(glRows), [glRows])
+
+  // ── After-overrides summary (uses debounced overrides, 500 ms lag) ───────────
+
+  const summaryAfter = useMemo(() => {
+    // GL rows that have at least one valid Sub ID linked via override — GL perspective only.
+    const overriddenGlIds = new Set(
+      glRows
+        .filter(r => splitIds(debouncedOverrides[r.id] ?? '').length > 0)
+        .map(r => r.id)
+    )
+    const afterGl  = glRows.filter(r => !overriddenGlIds.has(r.id))
+    const resolved = overriddenGlIds.size
+    return { ...computeSummary(afterGl), resolvedCount: resolved }
+  }, [glRows, debouncedOverrides])
+
+  // ── Accept Overrides & Finalize ──────────────────────────────────────────────
+
+  const handleFinalize = async () => {
+    if (!sessionId) { setFinalizeError('No session.'); return }
+    setFinalizing(true)
+    setFinalizeError(null)
+    try {
+      // Convert localStorage overrides to {gl_id: [sub_id, ...]} — GL perspective only.
+      const glOverrides: Record<string, string[]> = {}
+      for (const glRow of glRows) {
+        const linked = splitIds(overrides[glRow.id] ?? '')
+        if (linked.length > 0) glOverrides[glRow.id] = linked
+      }
+      await saveManualOverrides(sessionId, glOverrides)
+      navigate('/export')
+    } catch (err) {
+      setFinalizeError(err instanceof Error ? err.message : 'Failed to save overrides.')
+    } finally {
+      setFinalizing(false)
+    }
+  }
 
   // ── GL table columns ────────────────────────────────────────────────────────
 
@@ -407,68 +408,6 @@ export function DetailedAnalysisExport() {
     initialState: { pagination: { pageSize: 10 } },
   })
 
-  // ── Export ──────────────────────────────────────────────────────────────────
-
-  const toggleArtifact = (id: string) => {
-    setSelectedArtifacts(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
-  }
-
-  const selectAll = () => {
-    const allIds = EXPORT_ARTIFACTS.map(a => a.id)
-    setSelectedArtifacts(new Set(allIds))
-  }
-
-  const selectAllData = () => {
-    const dataIds = EXPORT_ARTIFACTS.filter(a => a.group === 'data').map(a => a.id)
-    setSelectedArtifacts(prev => { const next = new Set(prev); dataIds.forEach(id => next.add(id)); return next })
-  }
-
-  const handleDownload = async () => {
-    if (!sessionId) { setExportError('No session.'); return }
-    if (selectedArtifacts.size === 0) { setExportError('Select at least one item to export.'); return }
-    setExportLoading(true)
-    setExportError(null)
-    try {
-      try { await runExport(sessionId) } catch (e) {
-        if ((e as { status?: number })?.status !== 409) throw e
-      }
-      const manifest = await getExportManifest(sessionId)
-
-      // Build the ordered list of filenames requested by selected checkboxes.
-      const requested = new Set<string>()
-      for (const artifactId of selectedArtifacts) {
-        for (const filename of ARTIFACT_FILES[artifactId] ?? []) {
-          requested.add(filename)
-        }
-      }
-
-      const filenames = manifest.files
-        .filter(f => requested.has(f.filename))
-        .map(f => f.filename)
-
-      if (filenames.length === 0) {
-        setExportError('None of the selected items are available in the export manifest.')
-        return
-      }
-
-      // Trigger a single ZIP download — avoids popup-blocker issues with multiple window.open calls.
-      const a = document.createElement('a')
-      a.href = getExportZipUrl(sessionId, filenames)
-      a.download = ''
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Export failed')
-    } finally {
-      setExportLoading(false)
-    }
-  }
-
   // ── Shared table renderer ───────────────────────────────────────────────────
 
   function UnmatchedTable<T extends { id: string; amount: number }>({
@@ -547,16 +486,16 @@ export function DetailedAnalysisExport() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <PageLayout title="Detailed Analysis" description="Unmatched transactions and export reconciliation package.">
+    <PageLayout title="Unmatched Analysis" description="Summary of unmatched transactions before Overrides entered below.">
 
-      {/* 1. GL-perspective summary KPI cards (4) */}
+      {/* 1. Before-overrides KPI cards */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {loadError && <p className="col-span-full text-sm text-destructive">{loadError}</p>}
         <Card>
           <CardContent className="pt-6">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Unmatched Transactions</p>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
-              {loading ? '—' : summary.totalCount.toLocaleString()}
+              {loading ? '—' : summaryBefore.totalCount.toLocaleString()}
             </p>
           </CardContent>
         </Card>
@@ -564,7 +503,7 @@ export function DetailedAnalysisExport() {
           <CardContent className="pt-6">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Unmatched Amount</p>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
-              {loading ? '—' : `$${summary.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+              {loading ? '—' : `$${summaryBefore.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
             </p>
           </CardContent>
         </Card>
@@ -572,7 +511,7 @@ export function DetailedAnalysisExport() {
           <CardContent className="pt-6">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Largest Unmatched Transaction</p>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
-              {loading ? '—' : `$${summary.largestAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+              {loading ? '—' : `$${summaryBefore.largestAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
             </p>
           </CardContent>
         </Card>
@@ -580,10 +519,10 @@ export function DetailedAnalysisExport() {
           <CardContent className="pt-6">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Top Vendor Concentration</p>
             <p className="mt-1 text-lg font-semibold text-foreground">
-              {loading ? '—' : summary.topVendor || '—'}
+              {loading ? '—' : summaryBefore.topVendor || '—'}
             </p>
             <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
-              {loading ? '—' : `$${summary.topVendorAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} unmatched`}
+              {loading ? '—' : `$${summaryBefore.topVendorAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} unmatched`}
             </p>
           </CardContent>
         </Card>
@@ -631,81 +570,76 @@ export function DetailedAnalysisExport() {
         </CardContent>
       </Card>
 
-      {/* 3. Export Builder */}
+      {/* 3. After-overrides KPI cards (debounced real-time) */}
+      <section>
+        <p className="mb-3 text-sm font-medium text-muted-foreground">
+          Summary of final unmatched transactions after Overrides.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Remaining Unmatched</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                {loading ? '—' : summaryAfter.totalCount.toLocaleString()}
+              </p>
+              {summaryAfter.resolvedCount > 0 && (
+                <p className="mt-0.5 text-xs text-green-600 dark:text-green-500">
+                  {summaryAfter.resolvedCount} resolved via override
+                </p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Remaining GL Amount</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                {loading ? '—' : `$${summaryAfter.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Largest Remaining</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                {loading ? '—' : `$${summaryAfter.largestAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Top Remaining Vendor</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">
+                {loading ? '—' : summaryAfter.topVendor || '—'}
+              </p>
+              <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
+                {loading ? '—' : `$${summaryAfter.topVendorAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} unmatched`}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* 4. Accept Overrides & Finalize */}
       <Card>
-        <CardHeader>
-          <CardTitle>Export Reconciliation Package</CardTitle>
-          <CardDescription>
-            Choose which artifacts to include. Download produces a single ZIP file.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={selectAll}>
-              Select all
-            </Button>
-            <Button variant="outline" size="sm" onClick={selectAllData}>
-              Select all data sets
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setSelectedArtifacts(new Set())}>
-              Clear
-            </Button>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Data sets</p>
-              <ul className="space-y-2">
-                {EXPORT_ARTIFACTS.filter(a => a.group === 'data').map(artifact => (
-                  <li key={artifact.id} className="flex items-center gap-3">
-                    <Checkbox
-                      id={artifact.id}
-                      checked={selectedArtifacts.has(artifact.id)}
-                      onCheckedChange={() => toggleArtifact(artifact.id)}
-                      aria-label={`Include ${artifact.label}`}
-                    />
-                    <label htmlFor={artifact.id} className="cursor-pointer text-sm text-foreground">
-                      {artifact.label}
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Narrative</p>
-              <ul className="space-y-2">
-                {EXPORT_ARTIFACTS.filter(a => a.group === 'narrative').map(artifact => (
-                  <li key={artifact.id} className="flex items-center gap-3">
-                    <Checkbox
-                      id={artifact.id}
-                      checked={selectedArtifacts.has(artifact.id)}
-                      onCheckedChange={() => toggleArtifact(artifact.id)}
-                      aria-label={`Include ${artifact.label}`}
-                    />
-                    <label htmlFor={artifact.id} className="cursor-pointer text-sm text-foreground">
-                      {artifact.label}
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <div className="border-t pt-4">
-            <Button onClick={handleDownload} size="lg" disabled={exportLoading}>
-              {exportLoading ? (
-                <><Loader2 className="size-4 animate-spin" aria-hidden />Exporting…</>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <Button size="lg" onClick={handleFinalize} disabled={finalizing}>
+              {finalizing ? (
+                <><Loader2 className="size-4 animate-spin" aria-hidden />Saving…</>
               ) : (
-                <><Download className="size-4" aria-hidden />Download Export Package</>
+                <>Accept Overrides &amp; Finalize<ArrowRight className="size-4" aria-hidden /></>
               )}
             </Button>
-            {exportError && <p className="mt-2 text-sm text-destructive">{exportError}</p>}
-            {selectedArtifacts.size > 0 && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {selectedArtifacts.size} item(s) selected for export.
+            {summaryAfter.resolvedCount > 0 && (
+              <p className="text-sm text-muted-foreground">
+                {summaryAfter.resolvedCount} manual override(s) will be included in the export.
               </p>
             )}
           </div>
+          {finalizeError && <p className="mt-2 text-sm text-destructive">{finalizeError}</p>}
         </CardContent>
       </Card>
+
     </PageLayout>
   )
 }

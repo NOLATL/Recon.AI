@@ -366,6 +366,17 @@ export function getSummaryNarrative(sessionId: string): Promise<{ narrative: str
 // Export
 // ---------------------------------------------------------------------------
 
+/** Save manual GL↔Sub override links before exporting. */
+export function saveManualOverrides(
+  sessionId: string,
+  overrides: Record<string, string[]>
+): Promise<{ session_id: string; override_count: number; status: string }> {
+  return apiRequest(
+    `/reconciliation/${sessionId}/overrides`,
+    { method: "POST", body: { overrides }, timeoutMs: 15_000 }
+  )
+}
+
 export function runExport(sessionId: string): Promise<ExportResponse> {
   return apiRequest<ExportResponse>(`/reconciliation/${sessionId}/export`, {
     method: "POST",

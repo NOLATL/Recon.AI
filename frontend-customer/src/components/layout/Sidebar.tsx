@@ -5,6 +5,7 @@ import {
   GitMerge,
   BarChart3,
   FileSearch,
+  Package,
   Menu,
   X,
   RotateCcw,
@@ -18,8 +19,9 @@ const navItems = [
   { to: '/', label: 'Landing', icon: LayoutDashboard },
   { to: '/load-files', label: 'Load Files', icon: Upload },
   { to: '/matching', label: 'Matching', icon: GitMerge },
-  { to: '/high-level-analysis', label: 'High-Level Analysis', icon: BarChart3 },
-  { to: '/detailed-analysis', label: 'Detailed Analysis', icon: FileSearch },
+  { to: '/high-level-analysis', label: 'Matched Analysis', icon: BarChart3 },
+  { to: '/detailed-analysis', label: 'Unmatched Analysis', icon: FileSearch },
+  { to: '/export', label: 'Export', icon: Package },
 ] as const
 
 export function Sidebar() {

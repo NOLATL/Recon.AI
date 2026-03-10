@@ -18,6 +18,7 @@ def create_runtime(session_id: str) -> Dict[str, Any]:
         "probabilistic": {},
         "ai_suggested_meta": {},
         "consolidation": {},
+        "manual_overrides": {},
         "export": {},
         "matching": {
             "deterministic": [],

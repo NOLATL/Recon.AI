@@ -516,21 +516,22 @@ def _build_pdf(
 # ---------------------------------------------------------------------------
 
 def run_export(
-    det_matches:   List[dict],       # runtime["matching"]["deterministic"]
-    prob_matches:  List[dict],       # runtime["matching"]["probabilistic"] — all (accepted+pending)
-    ai_final:      List[dict],       # runtime["matching"]["final"] — AI-accepted only
-    ai_suggested:  List[dict],       # runtime["matching"]["ai_suggested"] — pending suggestions
-    rejected:      List[dict],       # runtime["matching"]["rejected"]
-    residual_gl:   pd.DataFrame,
-    residual_sub:  pd.DataFrame,
-    ai_meta:       dict,
-    consolidation: dict,
-    raw_data:      dict,             # runtime["raw_data"]
-    clean_data:    dict,             # runtime["clean_data"]
-    snapshots:     dict,             # runtime["snapshots"]
-    matching:      dict,             # runtime["matching"] — for audit/process logs
-    session_id:    str,
-    export_dir:    Optional[str] = None,
+    det_matches:      List[dict],       # runtime["matching"]["deterministic"]
+    prob_matches:     List[dict],       # runtime["matching"]["probabilistic"] — all (accepted+pending)
+    ai_final:         List[dict],       # runtime["matching"]["final"] — AI-accepted only
+    ai_suggested:     List[dict],       # runtime["matching"]["ai_suggested"] — pending suggestions
+    rejected:         List[dict],       # runtime["matching"]["rejected"]
+    residual_gl:      pd.DataFrame,
+    residual_sub:     pd.DataFrame,
+    ai_meta:          dict,
+    consolidation:    dict,
+    raw_data:         dict,             # runtime["raw_data"]
+    clean_data:       dict,             # runtime["clean_data"]
+    snapshots:        dict,             # runtime["snapshots"]
+    matching:         dict,             # runtime["matching"] — for audit/process logs
+    session_id:       str,
+    manual_overrides: Optional[Dict[str, List[str]]] = None,  # {gl_id: [sub_id, ...]}
+    export_dir:       Optional[str] = None,
 ) -> ExportManifest:
     """
     Generate all 15 output files and return an ExportManifest.
@@ -587,29 +588,67 @@ def run_export(
         _write_dataframe_csv(ai_df, os.path.join(export_dir, "ai_matches.csv"))
     )
 
-    # -- 7. final_results.csv — all accepted matches ────────────────────────
+    # -- 7. final_results.csv — all accepted matches (incl. manual overrides) ─
     final_parts = []
     for layer_matches, layer_name in [
-        (det_matches,  "deterministic"),
+        (det_matches,   "deterministic"),
         (prob_accepted, "probabilistic"),
-        (ai_final,     "ai"),
+        (ai_final,      "ai"),
     ]:
         part = _expand_matches_with_data(layer_matches, layer_name, gl_lookup, sub_lookup)
         if not part.empty:
             final_parts.append(part)
+
+    # Append manual override rows: one row per GL–Sub pair, source_layer="manual".
+    if manual_overrides:
+        manual_rows = []
+        for gl_id, sub_ids in manual_overrides.items():
+            gl_data  = gl_lookup.get(str(gl_id), {})
+            n_sub    = len(sub_ids)
+            grouping = "one_to_one" if n_sub == 1 else "one_to_many"
+            for sub_id in sub_ids:
+                sub_data = sub_lookup.get(str(sub_id), {})
+                row = {
+                    "match_id":      f"MANUAL_{gl_id}_{sub_id}",
+                    "source_layer":  "manual",
+                    "grouping_type": grouping,
+                    "user_status":   "manual_override",
+                    "confidence":    1.0,
+                    "override_flag": True,
+                }
+                for k, v in gl_data.items():
+                    row[f"gl_{k}"] = v
+                for k, v in sub_data.items():
+                    row[f"sub_{k}"] = v
+                manual_rows.append(row)
+        if manual_rows:
+            final_parts.append(pd.DataFrame(manual_rows))
+
     final_df = pd.concat(final_parts, ignore_index=True) if final_parts else pd.DataFrame(columns=_MATCH_META_COLUMNS)
     manifest.files.append(
         _write_dataframe_csv(final_df, os.path.join(export_dir, "final_results.csv"))
     )
 
-    # -- 8. residual_unmatched_gl.csv ──────────────────────────────────────
+    # Pre-compute overridden ID sets so residuals exclude manually matched rows.
+    overridden_gl_ids  = set((manual_overrides or {}).keys())
+    overridden_sub_ids = {
+        sid
+        for sub_ids in (manual_overrides or {}).values()
+        for sid in sub_ids
+    }
+
+    # -- 8. residual_unmatched_gl.csv — exclude manually overridden GL rows ─
     gl_res = residual_gl if residual_gl is not None else pd.DataFrame()
+    if overridden_gl_ids and not gl_res.empty and "gl_id" in gl_res.columns:
+        gl_res = gl_res[~gl_res["gl_id"].astype(str).isin(overridden_gl_ids)].copy()
     manifest.files.append(
         _write_dataframe_csv(gl_res, os.path.join(export_dir, "residual_unmatched_gl.csv"))
     )
 
-    # -- 9. residual_unmatched_sub.csv ─────────────────────────────────────
+    # -- 9. residual_unmatched_sub.csv — exclude manually overridden Sub rows
     sub_res = residual_sub if residual_sub is not None else pd.DataFrame()
+    if overridden_sub_ids and not sub_res.empty and "subledger_id" in sub_res.columns:
+        sub_res = sub_res[~sub_res["subledger_id"].astype(str).isin(overridden_sub_ids)].copy()
     manifest.files.append(
         _write_dataframe_csv(sub_res, os.path.join(export_dir, "residual_unmatched_sub.csv"))
     )

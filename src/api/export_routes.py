@@ -95,28 +95,30 @@ def run_finalization_export(session_id: str):
     residual_gl  = pool.get("gl",        None)
     residual_sub = pool.get("subledger", None)
 
-    ai_meta       = runtime.get("ai_suggested_meta", {})
-    consolidation = runtime.get("consolidation",     {})
-    raw_data      = runtime.get("raw_data",          {})
-    clean_data    = runtime.get("clean_data",        {})
-    snapshots     = runtime.get("snapshots",         {})
+    ai_meta          = runtime.get("ai_suggested_meta",  {})
+    consolidation    = runtime.get("consolidation",      {})
+    raw_data         = runtime.get("raw_data",           {})
+    clean_data       = runtime.get("clean_data",         {})
+    snapshots        = runtime.get("snapshots",          {})
+    manual_overrides = runtime.get("manual_overrides",   {})
 
     # --- Run export (pure, writes files to temp dir) ---
     manifest = run_export(
-        det_matches=   det_matches,
-        prob_matches=  prob_matches,
-        ai_final=      ai_final,
-        ai_suggested=  ai_suggested,
-        rejected=      rejected,
-        residual_gl=   residual_gl,
-        residual_sub=  residual_sub,
-        ai_meta=       ai_meta,
-        consolidation= consolidation,
-        raw_data=      raw_data,
-        clean_data=    clean_data,
-        snapshots=     snapshots,
-        matching=      matching,
-        session_id=    session_id,
+        det_matches=      det_matches,
+        prob_matches=     prob_matches,
+        ai_final=         ai_final,
+        ai_suggested=     ai_suggested,
+        rejected=         rejected,
+        residual_gl=      residual_gl,
+        residual_sub=     residual_sub,
+        ai_meta=          ai_meta,
+        consolidation=    consolidation,
+        raw_data=         raw_data,
+        clean_data=       clean_data,
+        snapshots=        snapshots,
+        matching=         matching,
+        session_id=       session_id,
+        manual_overrides= manual_overrides,
     )
 
     # --- Write export metadata BEFORE state advance so snapshot captures it ---

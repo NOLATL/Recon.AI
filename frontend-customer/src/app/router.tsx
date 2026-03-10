@@ -5,6 +5,7 @@ import { LoadFiles } from './routes/LoadFiles'
 import { Matching } from './routes/Matching'
 import { HighLevelAnalysis } from './routes/HighLevelAnalysis'
 import { DetailedAnalysisExport } from './routes/DetailedAnalysisExport'
+import { Export } from './routes/Export'
 
 export const router = createBrowserRouter([
   {
@@ -16,6 +17,7 @@ export const router = createBrowserRouter([
       { path: 'matching', element: <Matching /> },
       { path: 'high-level-analysis', element: <HighLevelAnalysis /> },
       { path: 'detailed-analysis', element: <DetailedAnalysisExport /> },
+      { path: 'export', element: <Export /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

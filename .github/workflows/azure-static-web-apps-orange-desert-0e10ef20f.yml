@@ -4,10 +4,16 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'frontend-customer/**'
+      - '.github/workflows/azure-static-web-apps-orange-desert-0e10ef20f.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
+    paths:
+      - 'frontend-customer/**'
+      - '.github/workflows/azure-static-web-apps-orange-desert-0e10ef20f.yml'
 
 jobs:
   build_and_deploy_job:

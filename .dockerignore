@@ -17,6 +17,7 @@ venv
 # Node / frontend (separate container or build step)
 node_modules
 frontend
+frontend-customer
 
 # Test suite (not needed at runtime)
 tests

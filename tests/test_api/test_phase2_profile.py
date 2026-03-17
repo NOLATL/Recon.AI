@@ -337,6 +337,18 @@ class TestMetricsCorrectness:
         dr = self.data["metrics"]["files"]["gl"]["date_ranges"]["transaction_date"]
         assert dr["max"] == "2024-03-31"
 
+    def test_gl_transaction_date_has_histogram(self):
+        """transaction_date (date column) should have a non-empty histogram in column_profiles."""
+        gl = self.data["metrics"]["files"]["gl"]
+        assert "column_profiles" in gl
+        cp = gl["column_profiles"]
+        assert "transaction_date" in cp
+        tx_date = cp["transaction_date"]
+        assert tx_date["data_type"] == "date"
+        hist = tx_date.get("histogram", [])
+        assert len(hist) > 0, "transaction_date histogram should be non-empty"
+        assert all("label" in b and "count" in b for b in hist)
+
     # --- Numeric distributions ---
 
     def test_gl_amount_min(self):
@@ -377,6 +389,23 @@ class TestMetricsCorrectness:
         ed = self.data["metrics"]["files"]["gl"]["entity_distribution"]
         assert ed.get("ENT_B") == 1
 
+    # --- Column profiles (incl. date histogram) ---
+
+    def test_gl_transaction_date_histogram(self):
+        """transaction_date (date column) has a non-empty histogram by month."""
+        gl = self.data["metrics"]["files"]["gl"]
+        assert "column_profiles" in gl
+        profiles = gl["column_profiles"]
+        assert "transaction_date" in profiles
+        tx_date_profile = profiles["transaction_date"]
+        assert tx_date_profile["data_type"] == "date"
+        hist = tx_date_profile.get("histogram", [])
+        assert len(hist) > 0, "transaction_date should have histogram buckets"
+        for b in hist:
+            assert "label" in b and "count" in b
+            assert isinstance(b["label"], str)
+            assert isinstance(b["count"], int) and b["count"] >= 0
+
     # --- Cross-file summary ---
 
     def test_cross_file_gl_row_count(self):
@@ -391,6 +420,40 @@ class TestMetricsCorrectness:
     def test_cross_file_delta_pct(self):
         """delta=1, gl=4 → round(1/4*100, 4) = 25.0."""
         assert self.data["metrics"]["cross_file"]["row_count_delta_pct"] == pytest.approx(25.0, rel=1e-3)
+
+    # --- Column profiles (hover histograms) ---
+
+    def test_gl_transaction_date_has_histogram(self):
+        """transaction_date (date column) gets a monthly histogram for the hover tooltip."""
+        gl = self.data["metrics"]["files"]["gl"]
+        assert "column_profiles" in gl
+        cp = gl["column_profiles"]
+        assert "transaction_date" in cp
+        tx_date_profile = cp["transaction_date"]
+        assert tx_date_profile["data_type"] == "date"
+        hist = tx_date_profile.get("histogram", [])
+        assert len(hist) > 0, "date column should have histogram buckets"
+        for b in hist:
+            assert "label" in b and "count" in b
+            assert isinstance(b["count"], int)
+
+    # --- Column profiles (histogram for date columns) ---
+
+    def test_transaction_date_has_histogram(self):
+        """Date columns should have a non-empty histogram in column_profiles."""
+        gl = self.data["metrics"]["files"]["gl"]
+        assert "column_profiles" in gl
+        profiles = gl["column_profiles"]
+        assert "transaction_date" in profiles
+        tx_profile = profiles["transaction_date"]
+        assert tx_profile["data_type"] == "date"
+        hist = tx_profile.get("histogram", [])
+        assert len(hist) > 0, "transaction_date should have histogram buckets"
+        # Expect month labels like "Jan 2024", "Feb 2024"
+        for bucket in hist:
+            assert "label" in bucket
+            assert "count" in bucket
+            assert isinstance(bucket["count"], int)
 
     # --- Narrative smoke test ---
 

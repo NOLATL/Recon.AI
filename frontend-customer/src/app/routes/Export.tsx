@@ -17,6 +17,10 @@ import {
   getExportZipUrl,
 } from '@/api/endpoints'
 
+// White card styling (matches Matched Analysis page)
+const whiteCardClass =
+  'bg-white border-gray-200 shadow-[0_2px_8px_rgba(0,0,0,0.08)] rounded-2xl [--foreground:#1a1a1a] [--muted-foreground:#1a1a1a] [--card-foreground:#1a1a1a]'
+
 // ── Artifact catalogue ────────────────────────────────────────────────────────
 
 const EXPORT_ARTIFACTS = [
@@ -126,23 +130,26 @@ export function Export() {
 
   return (
     <PageLayout title="Export" description="Download the reconciliation package.">
-      <Card>
+      <Card className={whiteCardClass}>
         <CardHeader>
-          <CardTitle>Export Reconciliation Package</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-[#1a1a1a]">Export Reconciliation Package</CardTitle>
+          <CardDescription className="text-[#1a1a1a]">
             Choose which artifacts to include. Download produces a single ZIP file.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Selection controls */}
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={selectAll}>
+            <Button variant="outline" size="sm" onClick={selectAll}
+              className="bg-white border-gray-200 text-[#1a1a1a] hover:bg-gray-50">
               Select all
             </Button>
-            <Button variant="outline" size="sm" onClick={selectAllData}>
+            <Button variant="outline" size="sm" onClick={selectAllData}
+              className="bg-white border-gray-200 text-[#1a1a1a] hover:bg-gray-50">
               Select all data sets
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setSelectedArtifacts(new Set())}>
+            <Button variant="outline" size="sm" onClick={() => setSelectedArtifacts(new Set())}
+              className="bg-white border-gray-200 text-[#1a1a1a] hover:bg-gray-50">
               Clear
             </Button>
           </div>
@@ -150,7 +157,7 @@ export function Export() {
           {/* Artifact checklist */}
           <div className="space-y-4">
             <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Data sets</p>
+              <p className="mb-2 text-sm font-medium text-[#1a1a1a]">Data sets</p>
               <ul className="space-y-2">
                 {EXPORT_ARTIFACTS.filter(a => a.group === 'data').map(artifact => (
                   <li key={artifact.id} className="flex items-center gap-3">
@@ -160,7 +167,7 @@ export function Export() {
                       onCheckedChange={() => toggleArtifact(artifact.id)}
                       aria-label={`Include ${artifact.label}`}
                     />
-                    <label htmlFor={artifact.id} className="cursor-pointer text-sm text-foreground">
+                    <label htmlFor={artifact.id} className="cursor-pointer text-sm text-[#1a1a1a]">
                       {artifact.label}
                     </label>
                   </li>
@@ -168,7 +175,7 @@ export function Export() {
               </ul>
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium text-foreground">Narrative</p>
+              <p className="mb-2 text-sm font-medium text-[#1a1a1a]">Narrative</p>
               <ul className="space-y-2">
                 {EXPORT_ARTIFACTS.filter(a => a.group === 'narrative').map(artifact => (
                   <li key={artifact.id} className="flex items-center gap-3">
@@ -178,7 +185,7 @@ export function Export() {
                       onCheckedChange={() => toggleArtifact(artifact.id)}
                       aria-label={`Include ${artifact.label}`}
                     />
-                    <label htmlFor={artifact.id} className="cursor-pointer text-sm text-foreground">
+                    <label htmlFor={artifact.id} className="cursor-pointer text-sm text-[#1a1a1a]">
                       {artifact.label}
                     </label>
                   </li>
@@ -188,7 +195,7 @@ export function Export() {
           </div>
 
           {/* Download */}
-          <div className="border-t pt-4">
+          <div className="border-t border-gray-200 pt-4">
             <Button onClick={handleDownload} size="lg" disabled={exportLoading}>
               {exportLoading ? (
                 <><Loader2 className="size-4 animate-spin" aria-hidden />Exporting…</>
@@ -198,7 +205,7 @@ export function Export() {
             </Button>
             {exportError && <p className="mt-2 text-sm text-destructive">{exportError}</p>}
             {selectedArtifacts.size > 0 && (
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className="mt-2 text-sm text-[#1a1a1a]/70">
                 {selectedArtifacts.size} item(s) selected for export.
               </p>
             )}

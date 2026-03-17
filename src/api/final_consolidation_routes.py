@@ -342,22 +342,35 @@ def get_summary_narrative(session_id: str):
             ),
         )
 
-    consolidation = rm.get_runtime(session_id).get("consolidation", {})
-    total_match = consolidation.get("total_match_count", 0)
+    runtime_data  = rm.get_runtime(session_id)
+    consolidation = runtime_data.get("consolidation", {})
+    matching      = runtime_data.get("matching", {})
+
+    # Compute GL row counts per layer (sum of record_ids_A per match group).
+    # This matches the bar-chart perspective: N:1 / 1:N groups count multiple GL rows.
+    det_matches  = matching.get("deterministic", [])
+    prob_accepted = [m for m in matching.get("probabilistic", []) if m.get("user_status") == "accepted"]
+    ai_final     = [m for m in matching.get("final", []) if "ai_confidence_score" in m]
+
+    gl_rows_det  = sum(len(m.get("record_ids_A", [])) for m in det_matches)
+    gl_rows_prob = sum(len(m.get("record_ids_A", [])) for m in prob_accepted)
+    gl_rows_ai   = sum(len(m.get("record_ids_A", [])) for m in ai_final)
+    gl_rows_matched = gl_rows_det + gl_rows_prob + gl_rows_ai
+
     residual_gl = consolidation.get("residual_gl_count", 0)
+    gl_total    = gl_rows_matched + residual_gl
+
     summary_data = {
         "perspective": "GL",
-        "note": "All counts and amounts are from the General Ledger perspective only.",
+        "note": "All counts are GL row counts from the General Ledger perspective.",
         "summary": {
-            "gl_total_count":            total_match + residual_gl,
-            "gl_matched_count":          total_match,
-            "gl_unmatched_count":        residual_gl,
-            "match_rate_pct":            round(total_match / (total_match + residual_gl) * 100, 1) if (total_match + residual_gl) > 0 else 0,
-            "deterministic_match_count": consolidation.get("deterministic_match_count", 0),
-            "probabilistic_match_count": consolidation.get("probabilistic_match_count", 0),
-            "ai_match_count":            consolidation.get("ai_match_count",            0),
-            "rejected_count":            consolidation.get("rejected_count",            0),
-            "override_count":            consolidation.get("override_count",            0),
+            "gl_total_rows":         gl_total,
+            "gl_matched_rows":       gl_rows_matched,
+            "gl_unmatched_rows":     residual_gl,
+            "match_rate_pct":        round(gl_rows_matched / gl_total * 100, 1) if gl_total > 0 else 0,
+            "gl_rows_deterministic": gl_rows_det,
+            "gl_rows_probabilistic": gl_rows_prob,
+            "gl_rows_ai":            gl_rows_ai,
         }
     }
 

@@ -20,22 +20,22 @@ function FilePicker({
 }) {
   const ref = useRef<HTMLInputElement>(null)
   return (
-    <div className="border border-dashed border-gray-300 rounded-md p-4 hover:border-blue-400 transition-colors">
+    <div className="border-2 border-dashed border-void-border rounded-2xl p-4 hover:border-bdo-red/40 hover:bg-bdo-red/5 transition-colors">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-700">{label}</p>
+          <p className="text-sm font-medium text-white/75">{label}</p>
           {file ? (
-            <p className="text-xs text-green-600 mt-0.5">
+            <p className="text-xs text-emerald-400 mt-0.5">
               {file.name} ({(file.size / 1024).toFixed(1)} KB)
             </p>
           ) : (
-            <p className="text-xs text-gray-400 mt-0.5">No file selected</p>
+            <p className="text-xs text-white/35 mt-0.5">No file selected</p>
           )}
         </div>
         <button
           type="button"
           onClick={() => ref.current?.click()}
-          className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-md transition-colors"
+          className="text-xs bg-void-elevated hover:bg-void-border text-white/60 hover:text-white px-3 py-1.5 rounded-pill transition-colors border border-void-border"
         >
           Choose CSV
         </button>
@@ -54,42 +54,42 @@ function FilePicker({
 function UploadResult({ data }: { data: UploadSuccessResponse }) {
   return (
     <div className="mt-6 space-y-4">
-      <div className="bg-green-50 border border-green-200 rounded-md p-4">
-        <p className="text-sm font-medium text-green-800 mb-2">Upload successful</p>
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+        <p className="text-sm font-medium text-emerald-300 mb-2">Upload successful</p>
         <div className="grid grid-cols-3 gap-3">
           {Object.entries(data.row_counts).map(([key, count]) => (
-            <div key={key} className="bg-white rounded border border-green-100 p-3 text-center">
-              <p className="text-xs text-gray-500">{key}</p>
-              <p className="text-xl font-bold text-gray-900 mt-0.5">{count}</p>
-              <p className="text-xs text-gray-400">rows</p>
+            <div key={key} className="bg-void-elevated border border-void-border rounded-lg p-3 text-center">
+              <p className="text-xs text-white/50">{key}</p>
+              <p className="text-xl font-bold text-white mt-0.5">{count}</p>
+              <p className="text-xs text-white/35">rows</p>
             </div>
           ))}
         </div>
       </div>
 
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-2">Validation Summary</h4>
+        <h4 className="text-sm font-medium text-white/70 mb-2">Validation Summary</h4>
         <div className="space-y-2">
           {Object.entries(data.validation).map(([key, v]) => (
             <div
               key={key}
               className={[
-                'rounded-md p-3 text-sm border',
+                'rounded-xl p-3 text-sm border',
                 v.is_valid
-                  ? 'bg-green-50 border-green-200'
-                  : 'bg-red-50 border-red-200',
+                  ? 'bg-emerald-500/10 border-emerald-500/20'
+                  : 'bg-bdo-red/10 border-bdo-red/25',
               ].join(' ')}
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium">
+                <span className={`font-medium ${v.is_valid ? 'text-emerald-300' : 'text-bdo-red-light'}`}>
                   {v.is_valid ? '✓' : '✗'} {key}
                 </span>
-                <span className="text-xs text-gray-500">{v.row_count} rows</span>
+                <span className="text-xs text-white/50">{v.row_count} rows</span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-white/50 mt-1">
                 Columns: {v.columns_validated.join(', ')}
               </p>
-              <p className="font-mono text-xs text-gray-400 mt-0.5">
+              <p className="font-mono text-xs text-white/35 mt-0.5">
                 Schema hash: {v.schema_hash}
               </p>
             </div>
@@ -97,8 +97,8 @@ function UploadResult({ data }: { data: UploadSuccessResponse }) {
         </div>
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-800">
-        State advanced to <strong>{data.state}</strong>. Click "Continue" in the status bar above to
+      <div className="bg-bdo-red/8 border border-bdo-red/20 rounded-xl p-3 text-sm text-white/70">
+        State advanced to <strong className="text-white">{data.state}</strong>. Click "Continue" in the status bar above to
         refresh, or proceed to the Profile step.
       </div>
     </div>
@@ -125,9 +125,9 @@ export default function UploadStep({ sessionId, onSuccess }: Props) {
   const canSubmit = !!coa && !!gl && !!sub && !mutation.isPending
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
-      <h2 className="text-base font-semibold text-gray-900 mb-1">Upload Files</h2>
-      <p className="text-sm text-gray-500 mb-5">
+    <div className="glass-card p-6">
+      <h2 className="text-base font-semibold text-white mb-1">Upload Files</h2>
+      <p className="text-sm text-white/50 mb-5">
         Upload Chart of Accounts, General Ledger, and Subledger CSV files to begin.
       </p>
 
@@ -146,7 +146,7 @@ export default function UploadStep({ sessionId, onSuccess }: Props) {
       <button
         onClick={() => mutation.mutate()}
         disabled={!canSubmit}
-        className="mt-5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
+        className="btn-primary mt-5 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {mutation.isPending ? 'Uploading…' : 'Upload Files'}
       </button>

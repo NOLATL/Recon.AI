@@ -252,6 +252,14 @@ def write_manual_overrides(session_id: str, overrides: dict) -> None:
     runtime["manual_overrides"] = overrides
 
 
+def write_manual_rejected(session_id: str, rejected: list) -> None:
+    """Store matches manually rejected by the user on the Matched Analysis page.
+    Each entry: {match_id, record_ids_A: [gl_id, ...], record_ids_B: [sub_id, ...]}
+    """
+    runtime = get_runtime(session_id)
+    runtime["manual_rejected"] = rejected
+
+
 def write_export_meta(session_id: str, export_data: dict) -> None:
     """Store export metadata (file paths, hashes, timestamp)."""
     runtime = get_runtime(session_id)

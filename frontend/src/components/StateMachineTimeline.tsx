@@ -29,7 +29,6 @@ export default function StateMachineTimeline({ currentState }: Props) {
         {ALL_STATES.map((state, idx) => {
           const isDone = idx < currentIdx
           const isCurrent = idx === currentIdx
-          const isFuture = idx > currentIdx
 
           return (
             <div key={state} className="flex items-center">
@@ -37,24 +36,30 @@ export default function StateMachineTimeline({ currentState }: Props) {
               <div className="flex flex-col items-center">
                 <div
                   className={[
-                    'w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold border-2 flex-shrink-0',
+                    'w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold border-2 flex-shrink-0 transition-all duration-200',
                     isDone
-                      ? 'bg-blue-600 border-blue-600 text-white'
+                      ? 'bg-bdo-red border-bdo-red text-white'
                       : isCurrent
-                        ? 'bg-white border-blue-600 text-blue-600'
-                        : 'bg-white border-gray-300 text-gray-400',
+                        ? 'bg-void border-bdo-red-light text-bdo-red-light shadow-red-glow ring-2 ring-bdo-red/20 ring-offset-1 ring-offset-void-surface'
+                        : 'bg-void-elevated border-void-border text-white/25',
                   ].join(' ')}
                 >
-                  {isDone ? '✓' : idx + 1}
+                  {isDone ? (
+                    <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" width="10" height="10">
+                      <path d="M2 5l2.5 2.5L8 3" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : (
+                    idx + 1
+                  )}
                 </div>
                 <span
                   className={[
-                    'mt-1.5 text-xs text-center max-w-[70px] leading-tight',
+                    'mt-1.5 text-[9px] text-center max-w-[70px] leading-tight',
                     isCurrent
-                      ? 'text-blue-700 font-semibold'
+                      ? 'text-bdo-red-light font-semibold'
                       : isDone
-                        ? 'text-blue-500'
-                        : 'text-gray-400',
+                        ? 'text-white/50'
+                        : 'text-white/20',
                   ].join(' ')}
                 >
                   {STATE_LABELS[state]}
@@ -65,8 +70,8 @@ export default function StateMachineTimeline({ currentState }: Props) {
               {idx < ALL_STATES.length - 1 && (
                 <div
                   className={[
-                    'h-0.5 w-6 mx-1 flex-shrink-0 mb-5',
-                    idx < currentIdx ? 'bg-blue-400' : 'bg-gray-200',
+                    'h-0.5 w-5 mx-1 flex-shrink-0 mb-5 transition-all duration-200',
+                    idx < currentIdx ? 'bg-bdo-red/50' : 'bg-void-border',
                   ].join(' ')}
                 />
               )}

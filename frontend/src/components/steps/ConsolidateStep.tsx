@@ -22,10 +22,10 @@ function fmtUsd(v: number): string {
 // ── Layer colour map ──────────────────────────────────────────────────────────
 
 const LAYER_COLOR: Record<string, string> = {
-  deterministic: 'bg-green-100 text-green-800',
-  probabilistic: 'bg-blue-100 text-blue-800',
-  ai:            'bg-purple-100 text-purple-800',
-  rejected:      'bg-red-100 text-red-800',
+  deterministic: 'bg-emerald-500/15 text-emerald-300',
+  probabilistic: 'bg-bdo-red/15 text-bdo-red-light',
+  ai:            'bg-violet-500/15 text-violet-300',
+  rejected:      'bg-bdo-red/15 text-bdo-red-light',
 }
 
 // ── Download sheet builders ───────────────────────────────────────────────────
@@ -110,45 +110,45 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
 
   return (
     <div>
-      <h4 className="text-sm font-semibold text-gray-900 mb-1">BANS Analysis</h4>
-      <p className="text-xs text-gray-500 mb-4">
+      <h4 className="text-sm font-semibold text-white mb-1">BANS Analysis</h4>
+      <p className="text-xs text-white/50 mb-4">
         Big groups · Amount mix · Notable residuals · Source sensitivity
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
         {/* B — Big Groups */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             B — Big Groups
           </p>
-          <p className="text-2xl font-bold text-gray-900 tabular-nums">{bigGroups.length}</p>
-          <p className="text-xs text-gray-500 mb-3">N:1 / 1:N multi-record matches</p>
+          <p className="text-2xl font-bold text-white tabular-nums">{bigGroups.length}</p>
+          <p className="text-xs text-white/50 mb-3">N:1 / 1:N multi-record matches</p>
           {bigGroups.length > 0 ? (
             <>
               <table className="w-full text-[11px]">
                 <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left py-1 pr-2 font-medium text-gray-500">Match ID</th>
-                    <th className="text-center py-1 px-2 font-medium text-gray-500">GL</th>
-                    <th className="text-center py-1 px-2 font-medium text-gray-500">Sub</th>
-                    <th className="text-left py-1 pl-2 font-medium text-gray-500">Layer</th>
+                  <tr className="border-b border-void-border/50">
+                    <th className="text-left py-1 pr-2 font-medium text-white/50">Match ID</th>
+                    <th className="text-center py-1 px-2 font-medium text-white/50">GL</th>
+                    <th className="text-center py-1 px-2 font-medium text-white/50">Sub</th>
+                    <th className="text-left py-1 pl-2 font-medium text-white/50">Layer</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-void-border/30">
                   {bigGroups.slice(0, 6).map((m, i) => (
                     <tr key={i}>
-                      <td className="py-1 pr-2 font-mono text-gray-700 truncate max-w-[120px]">
+                      <td className="py-1 pr-2 font-mono text-white/75 truncate max-w-[120px]">
                         {String(m['match_id'] ?? '')}
                       </td>
-                      <td className="py-1 px-2 text-center font-bold text-gray-900">
+                      <td className="py-1 px-2 text-center font-bold text-white">
                         {(m['record_ids_A'] as string[]).length}
                       </td>
-                      <td className="py-1 px-2 text-center font-bold text-gray-900">
+                      <td className="py-1 px-2 text-center font-bold text-white">
                         {(m['record_ids_B'] as string[]).length}
                       </td>
                       <td className="py-1 pl-2">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${LAYER_COLOR[String(m['layer'] ?? '')] ?? 'bg-gray-100 text-gray-600'}`}>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${LAYER_COLOR[String(m['layer'] ?? '')] ?? 'bg-void-border text-white/50'}`}>
                           {String(m['layer'] ?? '')}
                         </span>
                       </td>
@@ -157,35 +157,35 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
                 </tbody>
               </table>
               {bigGroups.length > 6 && (
-                <p className="text-[10px] text-gray-400 mt-1.5">
+                <p className="text-[10px] text-white/35 mt-1.5">
                   +{bigGroups.length - 6} more — see Matches grid below
                 </p>
               )}
             </>
           ) : (
-            <p className="text-xs text-green-600">All matches are 1:1 — no complex groupings.</p>
+            <p className="text-xs text-emerald-400">All matches are 1:1 — no complex groupings.</p>
           )}
         </div>
 
         {/* A — Amount Mix by Layer */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             A — Amount Mix by Layer
           </p>
           <div className="space-y-2.5">
             {[
-              { label: 'Deterministic', count: s.deterministic_match_count, pct: detPct,  color: 'bg-green-400' },
-              { label: 'Probabilistic', count: s.probabilistic_match_count, pct: probPct, color: 'bg-blue-400' },
-              { label: 'AI',            count: s.ai_match_count,            pct: aiPct,   color: 'bg-purple-400' },
+              { label: 'Deterministic', count: s.deterministic_match_count, pct: detPct,  color: 'bg-emerald-400' },
+              { label: 'Probabilistic', count: s.probabilistic_match_count, pct: probPct, color: 'bg-bdo-red/60' },
+              { label: 'AI',            count: s.ai_match_count,            pct: aiPct,   color: 'bg-violet-400' },
             ].map(({ label, count, pct, color }) => (
               <div key={label}>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-gray-600">{label}</span>
+                  <span className="text-white/60">{label}</span>
                   <span className="font-medium tabular-nums">
                     {count.toLocaleString()} ({pct.toFixed(1)}%)
                   </span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div className="w-full bg-void-border rounded-full h-1.5">
                   <div
                     className={`h-1.5 rounded-full ${color}`}
                     style={{ width: `${Math.min(pct, 100)}%` }}
@@ -195,8 +195,8 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
             ))}
           </div>
           <div className={`mt-3 p-2 rounded text-[11px] ${
-            lowerConfPct < 5 ? 'bg-green-50 text-green-700' :
-            lowerConfPct < 20 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
+            lowerConfPct < 5 ? 'bg-emerald-500/10 text-emerald-300' :
+            lowerConfPct < 20 ? 'bg-amber-500/10 text-amber-300' : 'bg-bdo-red/10 text-bdo-red-light'
           }`}>
             {lowerConfPct.toFixed(1)}% of matches came from probabilistic or AI layers — review
             {lowerConfPct >= 20 ? ' carefully' : ' as needed'}.
@@ -204,8 +204,8 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
         </div>
 
         {/* N — Notable Residuals */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             N — Notable Residuals
           </p>
           <div className="space-y-4">
@@ -215,17 +215,17 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
             ].map(({ label, count, pct }) => (
               <div key={label}>
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-gray-500">{label}</span>
+                  <span className="text-white/50">{label}</span>
                   <span className={`font-semibold ${
-                    pct < 10 ? 'text-green-700' : pct < 30 ? 'text-amber-600' : 'text-red-600'
+                    pct < 10 ? 'text-emerald-400' : pct < 30 ? 'text-amber-300' : 'text-bdo-red-light'
                   }`}>
                     {count.toLocaleString()} ({pct.toFixed(1)}%)
                   </span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-2">
+                <div className="w-full bg-void-border rounded-full h-2">
                   <div
                     className={`h-2 rounded-full ${
-                      pct < 10 ? 'bg-green-400' : pct < 30 ? 'bg-amber-400' : 'bg-red-400'
+                      pct < 10 ? 'bg-emerald-400' : pct < 30 ? 'bg-amber-400' : 'bg-bdo-red/80'
                     }`}
                     style={{ width: `${Math.min(pct, 100)}%` }}
                   />
@@ -233,14 +233,14 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-gray-400 mt-3">
+          <p className="text-[11px] text-white/35 mt-3">
             {s.rejected_count} match{s.rejected_count !== 1 ? 'es' : ''} rejected across all phases.
           </p>
         </div>
 
         {/* S — Source Sensitivity */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             S — Source Sensitivity
           </p>
           <div className="space-y-2">
@@ -251,9 +251,9 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
               { label: 'Rejected (all phases)',          count: s.rejected_count,            risk: false },
             ].map(({ label, count, risk }) => (
               <div key={label} className="flex items-center justify-between gap-2 text-xs">
-                <span className="text-gray-600 flex-1 truncate">{label}</span>
+                <span className="text-white/60 flex-1 truncate">{label}</span>
                 <span className={`font-bold tabular-nums flex-shrink-0 ${
-                  risk && count > 0 ? 'text-amber-600' : 'text-gray-900'
+                  risk && count > 0 ? 'text-amber-300' : 'text-white'
                 }`}>
                   {count.toLocaleString()}
                 </span>
@@ -261,12 +261,12 @@ function BansSection({ data }: { data: FinalConsolidationResponse }) {
             ))}
           </div>
           {s.override_count > 0 && (
-            <div className="mt-3 p-2 bg-amber-50 rounded text-[11px] text-amber-700">
+            <div className="mt-3 p-2 bg-amber-500/10 rounded text-[11px] text-amber-300">
               {s.override_count} override flag{s.override_count !== 1 ? 's' : ''} set — manual review recommended.
             </div>
           )}
           {s.override_count === 0 && (
-            <div className="mt-3 p-2 bg-green-50 rounded text-[11px] text-green-700">
+            <div className="mt-3 p-2 bg-emerald-500/10 rounded text-[11px] text-emerald-300">
               No overrides — all matches accepted through standard review workflow.
             </div>
           )}
@@ -434,7 +434,7 @@ function buildDfColDefs(rows: Record<string, unknown>[]): ColDef[] {
   })
 }
 
-function DataFrameGrid({ rows, label, badge, badgeColor = 'bg-blue-100 text-blue-700' }: {
+function DataFrameGrid({ rows, label, badge, badgeColor = 'bg-bdo-red/15 text-bdo-red-light' }: {
   rows: Record<string, unknown>[]
   label: string
   badge?: string
@@ -443,21 +443,21 @@ function DataFrameGrid({ rows, label, badge, badgeColor = 'bg-blue-100 text-blue
   const colDefs = useMemo(() => buildDfColDefs(rows), [rows])
   if (rows.length === 0) {
     return (
-      <div className="border border-gray-200 rounded-lg p-5 text-center bg-gray-50">
-        <p className="text-sm text-gray-500">{label} — 0 rows</p>
+      <div className="border border-void-border rounded-xl p-5 text-center bg-void-elevated">
+        <p className="text-sm text-white/50">{label} — 0 rows</p>
       </div>
     )
   }
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-sm font-medium text-gray-700">{label}</span>
+        <span className="text-sm font-medium text-white/70">{label}</span>
         {badge && (
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badgeColor}`}>
             {badge}
           </span>
         )}
-        <span className="text-xs text-gray-400 ml-auto">Sort · filter · resize any column</span>
+        <span className="text-xs text-white/35 ml-auto">Sort · filter · resize any column</span>
       </div>
       <div className="ag-theme-alpine w-full" style={{ height: 420 }}>
         <AgGridReact
@@ -483,15 +483,15 @@ function ResidualTabs({ data }: { data: FinalConsolidationResponse }) {
   const [active, setActive] = useState<ResidualTab>('gl_residual')
 
   const tabs: { id: ResidualTab; label: string; rows: Record<string, unknown>[]; badge: string }[] = [
-    { id: 'gl_residual',  label: 'GL Residual (unmatched)',  rows: data.residual_gl_records,  badge: 'bg-amber-100 text-amber-700' },
-    { id: 'sub_residual', label: 'Sub Residual (unmatched)', rows: data.residual_sub_records, badge: 'bg-amber-100 text-amber-700' },
+    { id: 'gl_residual',  label: 'GL Residual (unmatched)',  rows: data.residual_gl_records,  badge: 'bg-amber-500/15 text-amber-300' },
+    { id: 'sub_residual', label: 'Sub Residual (unmatched)', rows: data.residual_sub_records, badge: 'bg-amber-500/15 text-amber-300' },
   ]
 
   const activeCfg = tabs.find((t) => t.id === active)!
 
   return (
     <div>
-      <div className="flex gap-1 border-b border-gray-200 mb-4 overflow-x-auto">
+      <div className="flex gap-1 border-b border-void-border mb-4 overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === active
           return (
@@ -500,13 +500,13 @@ function ResidualTabs({ data }: { data: FinalConsolidationResponse }) {
               onClick={() => setActive(tab.id)}
               className={`flex items-center gap-1.5 px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-colors ${
                 isActive
-                  ? 'border-blue-500 text-blue-700 font-medium'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-bdo-red text-bdo-red-light font-medium'
+                  : 'border-transparent text-white/40 hover:text-white/70 hover:border-void-border'
               }`}
             >
               {tab.label}
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                isActive ? tab.badge : 'bg-gray-100 text-gray-500'
+                isActive ? tab.badge : 'bg-void-border text-white/50'
               }`}>
                 {tab.rows.length}
               </span>
@@ -534,8 +534,8 @@ function ConsolidationAnalytics({ data }: { data: FinalConsolidationResponse }) 
   return (
     <div className="mb-8 space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">Final Consolidation — Results</h3>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <h3 className="text-sm font-semibold text-white">Final Consolidation — Results</h3>
+        <p className="text-xs text-white/50 mt-0.5">
           {total.toLocaleString()} total matches across all layers ·
           snapshot <span className="font-mono">{data.snapshot.key}</span>
         </p>
@@ -550,9 +550,9 @@ function ConsolidationAnalytics({ data }: { data: FinalConsolidationResponse }) 
           { label: 'AI',             value: s.ai_match_count,             sub: total > 0 ? `${((s.ai_match_count             / total) * 100).toFixed(1)}%` : '', accent: 'purple' },
         ].map(({ label, value, sub, accent }) => {
           const cls = {
-            blue:   'bg-blue-50 border-blue-200 text-blue-900',
-            green:  'bg-green-50 border-green-200 text-green-900',
-            purple: 'bg-purple-50 border-purple-200 text-purple-900',
+            blue:   'bg-bdo-red/8 border-bdo-red/20 text-white',
+            green:  'bg-emerald-500/8 border-emerald-500/20 text-white',
+            purple: 'bg-violet-500/10 border-violet-500/20 text-white',
           }[accent]
           return (
             <div key={label} className={`border rounded-lg p-4 ${cls}`}>
@@ -566,26 +566,26 @@ function ConsolidationAnalytics({ data }: { data: FinalConsolidationResponse }) 
 
       {/* KPI row — residuals + rejected */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="border border-amber-200 bg-amber-50 rounded-lg p-4">
-          <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">GL Residual</p>
-          <p className="text-2xl font-bold text-amber-900 tabular-nums mt-1">
+        <div className="border border-amber-500/20 bg-amber-500/8 rounded-lg p-4">
+          <p className="text-xs font-medium text-amber-300 uppercase tracking-wide">GL Residual</p>
+          <p className="text-2xl font-bold text-amber-300 tabular-nums mt-1">
             {s.residual_gl_count.toLocaleString()}
           </p>
-          <p className="text-xs text-amber-600 mt-0.5">unmatched GL records</p>
+          <p className="text-xs text-amber-300 mt-0.5">unmatched GL records</p>
         </div>
-        <div className="border border-amber-200 bg-amber-50 rounded-lg p-4">
-          <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Sub Residual</p>
-          <p className="text-2xl font-bold text-amber-900 tabular-nums mt-1">
+        <div className="border border-amber-500/20 bg-amber-500/8 rounded-lg p-4">
+          <p className="text-xs font-medium text-amber-300 uppercase tracking-wide">Sub Residual</p>
+          <p className="text-2xl font-bold text-amber-300 tabular-nums mt-1">
             {s.residual_sub_count.toLocaleString()}
           </p>
-          <p className="text-xs text-amber-600 mt-0.5">unmatched Sub records</p>
+          <p className="text-xs text-amber-300 mt-0.5">unmatched Sub records</p>
         </div>
-        <div className="border border-red-200 bg-red-50 rounded-lg p-4">
-          <p className="text-xs font-medium text-red-600 uppercase tracking-wide">Rejected</p>
-          <p className="text-2xl font-bold text-red-800 tabular-nums mt-1">
+        <div className="border border-bdo-red/20 bg-bdo-red/8 rounded-lg p-4">
+          <p className="text-xs font-medium text-bdo-red-light uppercase tracking-wide">Rejected</p>
+          <p className="text-2xl font-bold text-bdo-red-light tabular-nums mt-1">
             {s.rejected_count.toLocaleString()}
           </p>
-          <p className="text-xs text-red-500 mt-0.5">across all phases</p>
+          <p className="text-xs text-bdo-red-light mt-0.5">across all phases</p>
         </div>
       </div>
 
@@ -595,16 +595,16 @@ function ConsolidationAnalytics({ data }: { data: FinalConsolidationResponse }) 
       {/* Final Matches — AG Grid */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-semibold text-gray-900">
+          <h4 className="text-sm font-semibold text-white">
             Final Matches{' '}
-            <span className="font-normal text-gray-400 text-xs">
+            <span className="font-normal text-white/35 text-xs">
               ({data.final_matches.length.toLocaleString()} rows)
             </span>
           </h4>
-          <p className="text-xs text-gray-400">Sort · filter · resize any column</p>
+          <p className="text-xs text-white/35">Sort · filter · resize any column</p>
         </div>
         {data.gl_records.length === 0 && data.final_matches.length > 0 && (
-          <p className="text-xs text-amber-600 mb-2">
+          <p className="text-xs text-amber-300 mb-2">
             Record detail columns unavailable — re-run consolidation in this session to populate.
           </p>
         )}
@@ -617,8 +617,8 @@ function ConsolidationAnalytics({ data }: { data: FinalConsolidationResponse }) 
 
       {/* Residual tabs */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-900 mb-1">Residual Records</h4>
-        <p className="text-xs text-gray-500 mb-4">
+        <h4 className="text-sm font-semibold text-white mb-1">Residual Records</h4>
+        <p className="text-xs text-white/50 mb-4">
           Records that could not be matched across any of the three reconciliation layers.
         </p>
         <ResidualTabs data={data} />
@@ -629,8 +629,8 @@ function ConsolidationAnalytics({ data }: { data: FinalConsolidationResponse }) 
         sheets={consolidationSheets}
       />
 
-      <div className="border-t border-dashed border-gray-200 pt-4">
-        <p className="text-xs text-gray-400">
+      <div className="border-t border-dashed border-void-border pt-4">
+        <p className="text-xs text-white/35">
           Review the results above, then proceed to Export to generate all output files.
         </p>
       </div>
@@ -708,13 +708,13 @@ export default function ConsolidateStep({ sessionId, state, onSuccess }: Props) 
   const displayData = mutation.data ?? cached
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="glass-card p-6">
       {/* Analytics — shown whenever data is available */}
       {displayData && <ConsolidationAnalytics data={displayData} />}
 
       {/* Loading state for fetch query */}
       {isPastConsolidation && !displayData && fetchQuery.isLoading && (
-        <p className="text-sm text-gray-500 mb-4">Loading consolidation analytics…</p>
+        <p className="text-sm text-white/50 mb-4">Loading consolidation analytics…</p>
       )}
 
       {/* Fetch error fallback */}
@@ -726,7 +726,7 @@ export default function ConsolidateStep({ sessionId, state, onSuccess }: Props) 
 
       {/* Fallback message when no cache and no data (only for non-consolidated states) */}
       {!isPastConsolidation && !displayData && (
-        <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-500 mb-6">
+        <div className="bg-void-elevated border border-void-border rounded-xl p-3 text-sm text-white/50 mb-6">
           Consolidation analytics not available — run Final Consolidation below to see the full
           breakdown here.
         </div>
@@ -735,12 +735,12 @@ export default function ConsolidateStep({ sessionId, state, onSuccess }: Props) 
       {/* Consolidation action — only shown when not yet past consolidation */}
       {!isPastConsolidation && (
         <>
-          <h2 className="text-base font-semibold text-gray-900 mb-1">Final Consolidation</h2>
-          <p className="text-sm text-gray-500 mb-2">
+          <h2 className="text-base font-semibold text-white mb-1">Final Consolidation</h2>
+          <p className="text-sm text-white/50 mb-2">
             Assemble the complete reconciliation dataset from all accepted matches across
             deterministic, probabilistic, and AI layers.
           </p>
-          <div className="bg-blue-50 border border-blue-100 rounded-md p-3 text-sm text-blue-800 mb-5">
+          <div className="bg-bdo-red/8 border border-bdo-red/20 rounded-xl p-3 text-sm text-white/70 mb-5">
             This is a pure bookkeeping step — no recomputation occurs. A snapshot is captured
             before the state advances.
           </div>
@@ -754,7 +754,7 @@ export default function ConsolidateStep({ sessionId, state, onSuccess }: Props) 
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
+            className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {mutation.isPending ? 'Consolidating…' : 'Run Final Consolidation'}
           </button>

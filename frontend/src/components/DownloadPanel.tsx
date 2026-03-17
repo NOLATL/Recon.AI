@@ -70,20 +70,18 @@ export default function DownloadPanel({ sheets, filename }: Props) {
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+    <div className="border border-void-border rounded-xl p-4 bg-void-elevated">
       <div className="flex items-center justify-between mb-3">
-        <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-          Export Data
-        </h5>
+        <h5 className="data-label">Export Data</h5>
         <div className="flex items-center gap-2 text-xs">
           <button
             onClick={() => setAll(true)}
-            className="text-blue-600 hover:underline"
+            className="text-bdo-red-light hover:text-bdo-red transition-colors"
           >
             Select all
           </button>
-          <span className="text-gray-300">|</span>
-          <button onClick={() => setAll(false)} className="text-gray-400 hover:underline">
+          <span className="text-white/20">|</span>
+          <button onClick={() => setAll(false)} className="text-white/40 hover:text-white/60 transition-colors">
             None
           </button>
         </div>
@@ -96,10 +94,10 @@ export default function DownloadPanel({ sheets, filename }: Props) {
               type="checkbox"
               checked={selected[s.id] ?? false}
               onChange={() => toggle(s.id)}
-              className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              className="w-3.5 h-3.5 rounded border-void-border accent-bdo-red cursor-pointer"
             />
-            <span className="text-sm text-gray-700">{s.label}</span>
-            <span className="text-xs text-gray-400">
+            <span className="text-sm text-white/70">{s.label}</span>
+            <span className="text-xs text-white/35">
               ({s.rows.length.toLocaleString()} rows)
             </span>
           </label>
@@ -109,7 +107,7 @@ export default function DownloadPanel({ sheets, filename }: Props) {
       <button
         onClick={handleDownload}
         disabled={activeSheets.length === 0}
-        className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-xs font-medium px-4 py-2 rounded-md transition-colors shadow-sm"
+        className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
       >
         <DownloadIcon />
         Download Selected ({activeSheets.length} sheet

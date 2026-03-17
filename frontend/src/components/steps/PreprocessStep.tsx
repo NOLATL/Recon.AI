@@ -23,8 +23,8 @@ function n(v: number | null | undefined, decimals = 2): string {
 }
 
 function pctColor(pct: number): string {
-  if (pct === 0) return 'bg-green-400'
-  if (pct < 5) return 'bg-yellow-400'
+  if (pct === 0) return 'bg-emerald-400'
+  if (pct < 5) return 'bg-amber-400'
   if (pct < 20) return 'bg-orange-400'
   return 'bg-red-500'
 }
@@ -136,11 +136,11 @@ function StatCard({
   accent?: 'blue' | 'green' | 'amber' | 'red' | 'gray'
 }) {
   const colors = {
-    blue: 'bg-blue-50 border-blue-200 text-blue-900',
-    green: 'bg-green-50 border-green-200 text-green-900',
-    amber: 'bg-amber-50 border-amber-200 text-amber-900',
-    red: 'bg-red-50 border-red-200 text-red-900',
-    gray: 'bg-gray-50 border-gray-200 text-gray-900',
+    blue: 'bg-bdo-red/8 border-bdo-red/20 text-white',
+    green: 'bg-emerald-500/8 border-emerald-500/20 text-white',
+    amber: 'bg-amber-500/8 border-amber-500/20 text-white',
+    red: 'bg-bdo-red/8 border-bdo-red/20 text-white',
+    gray: 'bg-void-elevated border-void-border text-white',
   }
   const cls = colors[accent ?? 'gray']
   return (
@@ -155,13 +155,13 @@ function StatCard({
 function NullBar({ pct }: { pct: number }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden flex-shrink-0">
+      <div className="w-24 h-2 bg-void-border rounded-full overflow-hidden flex-shrink-0">
         <div
           className={`h-full rounded-full ${pctColor(pct)}`}
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
       </div>
-      <span className="text-xs tabular-nums text-gray-600">{pct.toFixed(1)}%</span>
+      <span className="text-xs tabular-nums text-white/60">{pct.toFixed(1)}%</span>
     </div>
   )
 }
@@ -171,12 +171,12 @@ function NullAnalysisPanel({ f }: { f: FileProfilingSummary }) {
   const hasNulls = entries.some(([, c]) => c > 0)
   return (
     <div>
-      <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+      <h5 className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">
         Null Analysis
       </h5>
       {!hasNulls ? (
-        <div className="flex items-center gap-1.5 text-sm text-green-600">
-          <span className="text-green-500">✓</span> No nulls detected
+        <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+          <span className="text-emerald-400">✓</span> No nulls detected
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -184,11 +184,11 @@ function NullAnalysisPanel({ f }: { f: FileProfilingSummary }) {
             const pct = f.null_percentages[col] ?? 0
             return (
               <div key={col} className="flex items-center justify-between gap-3">
-                <span className="font-mono text-xs text-gray-700 w-32 truncate" title={col}>
+                <span className="font-mono text-xs text-white/75 w-32 truncate" title={col}>
                   {col}
                 </span>
                 <NullBar pct={pct} />
-                <span className="text-xs text-gray-500 w-12 text-right tabular-nums">
+                <span className="text-xs text-white/50 w-12 text-right tabular-nums">
                   {count.toLocaleString()}
                 </span>
               </div>
@@ -205,32 +205,32 @@ function NumericDistPanel({ f }: { f: FileProfilingSummary }) {
   if (entries.length === 0) return null
   return (
     <div>
-      <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+      <h5 className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">
         Numeric Distributions
       </h5>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left py-1.5 pr-3 font-medium text-gray-500">Column</th>
-              <th className="text-right py-1.5 px-2 font-medium text-gray-500">Min</th>
-              <th className="text-right py-1.5 px-2 font-medium text-gray-500">Max</th>
-              <th className="text-right py-1.5 px-2 font-medium text-gray-500">Mean</th>
-              <th className="text-right py-1.5 px-2 font-medium text-gray-500">Median</th>
-              <th className="text-right py-1.5 px-2 font-medium text-gray-500">Std Dev</th>
-              <th className="text-right py-1.5 pl-2 font-medium text-gray-500">Sum</th>
+            <tr className="border-b border-void-border/50">
+              <th className="text-left py-1.5 pr-3 font-medium text-white/50">Column</th>
+              <th className="text-right py-1.5 px-2 font-medium text-white/50">Min</th>
+              <th className="text-right py-1.5 px-2 font-medium text-white/50">Max</th>
+              <th className="text-right py-1.5 px-2 font-medium text-white/50">Mean</th>
+              <th className="text-right py-1.5 px-2 font-medium text-white/50">Median</th>
+              <th className="text-right py-1.5 px-2 font-medium text-white/50">Std Dev</th>
+              <th className="text-right py-1.5 pl-2 font-medium text-white/50">Sum</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-void-border/30">
             {entries.map(([col, d]) => (
-              <tr key={col} className="hover:bg-gray-50">
-                <td className="py-1.5 pr-3 font-mono text-gray-700">{col}</td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">{n(d.min)}</td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">{n(d.max)}</td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">{n(d.mean)}</td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">{n(d.median)}</td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">{n(d.std)}</td>
-                <td className="py-1.5 pl-2 text-right tabular-nums font-medium text-gray-800">{n(d.sum)}</td>
+              <tr key={col} className="hover:bg-void-elevated">
+                <td className="py-1.5 pr-3 font-mono text-white/75">{col}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-white/60">{n(d.min)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-white/60">{n(d.max)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-white/60">{n(d.mean)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-white/60">{n(d.median)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-white/60">{n(d.std)}</td>
+                <td className="py-1.5 pl-2 text-right tabular-nums font-medium text-white/90">{n(d.sum)}</td>
               </tr>
             ))}
           </tbody>
@@ -245,15 +245,15 @@ function DateRangePanel({ f }: { f: FileProfilingSummary }) {
   if (entries.length === 0) return null
   return (
     <div>
-      <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+      <h5 className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">
         Date Ranges
       </h5>
       <div className="flex flex-wrap gap-2">
         {entries.map(([col, dr]) => (
-          <div key={col} className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-xs">
-            <span className="font-mono font-medium text-gray-700">{col}</span>
-            <div className="text-gray-500 mt-0.5">
-              {dr.min ?? '—'} <span className="text-gray-300">→</span> {dr.max ?? '—'}
+          <div key={col} className="bg-void-elevated border border-void-border rounded-lg px-3 py-2 text-xs">
+            <span className="font-mono font-medium text-white/75">{col}</span>
+            <div className="text-white/50 mt-0.5">
+              {dr.min ?? '—'} <span className="text-white/25">→</span> {dr.max ?? '—'}
             </div>
           </div>
         ))}
@@ -270,9 +270,9 @@ function EntityPanel({ f }: { f: FileProfilingSummary }) {
 
   return (
     <div>
-      <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+      <h5 className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">
         Entity Distribution{' '}
-        <span className="text-gray-400 font-normal normal-case">
+        <span className="text-white/35 font-normal normal-case">
           ({entries.length} entities, {total.toLocaleString()} rows)
         </span>
       </h5>
@@ -281,23 +281,23 @@ function EntityPanel({ f }: { f: FileProfilingSummary }) {
           const pct = (count / total) * 100
           return (
             <div key={entity} className="flex items-center gap-2">
-              <span className="font-mono text-xs text-gray-700 w-28 truncate" title={entity}>
+              <span className="font-mono text-xs text-white/75 w-28 truncate" title={entity}>
                 {entity}
               </span>
-              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className="flex-1 h-2 bg-void-border rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-blue-400 rounded-full"
+                  className="h-full bg-bdo-red/60 rounded-full"
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-xs tabular-nums text-gray-500 w-20 text-right">
+              <span className="text-xs tabular-nums text-white/50 w-20 text-right">
                 {count.toLocaleString()} ({pct.toFixed(1)}%)
               </span>
             </div>
           )
         })}
         {entries.length > 8 && (
-          <p className="text-xs text-gray-400">+ {entries.length - 8} more entities</p>
+          <p className="text-xs text-white/35">+ {entries.length - 8} more entities</p>
         )}
       </div>
     </div>
@@ -310,31 +310,31 @@ function FileCard({ fileKey, f }: { fileKey: string; f: FileProfilingSummary }) 
   const totalNulls = Object.values(f.null_counts).reduce((s, c) => s + c, 0)
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-void-border rounded-lg overflow-hidden">
       {/* Card header */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between bg-gray-50 px-4 py-3 hover:bg-gray-100 transition-colors"
+        className="w-full flex items-center justify-between bg-void-elevated px-4 py-3 hover:bg-void-border transition-colors"
       >
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-gray-900">
+          <span className="text-sm font-semibold text-white">
             {FILE_LABELS[fileKey] ?? fileKey}
           </span>
-          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+          <span className="text-xs bg-bdo-red/15 text-bdo-red-light px-2 py-0.5 rounded-full font-medium">
             {f.row_count.toLocaleString()} rows
           </span>
           {f.duplicate_row_count > 0 && (
-            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full">
               {f.duplicate_row_count} dupes ({dupPct.toFixed(1)}%)
             </span>
           )}
           {totalNulls > 0 && (
-            <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-bdo-red/15 text-bdo-red-light px-2 py-0.5 rounded-full">
               {totalNulls.toLocaleString()} nulls
             </span>
           )}
         </div>
-        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+        <span className="text-white/35 text-xs">{open ? '▲' : '▼'}</span>
       </button>
 
       {/* Card body */}
@@ -361,8 +361,8 @@ function ProfileDashboard({ profile, sessionId }: { profile: ProfilingResponse; 
       {/* Header bar */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Profile Summary</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h3 className="text-sm font-semibold text-white">Profile Summary</h3>
+          <p className="text-xs text-white/50 mt-0.5">
             Snapshot: <span className="font-mono">{profile.snapshot.key}</span>
           </p>
         </div>
@@ -387,18 +387,18 @@ function ProfileDashboard({ profile, sessionId }: { profile: ProfilingResponse; 
       </div>
 
       {/* Narrative */}
-      <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
-        <h4 className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
+      <div className="bg-bdo-red/8 border border-bdo-red/20 rounded-xl p-4">
+        <h4 className="text-xs font-semibold text-bdo-red-light uppercase tracking-wider mb-2">
           Narrative
         </h4>
-        <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-wrap">
+        <p className="text-sm text-white/70 leading-relaxed whitespace-pre-wrap">
           {profile.narrative}
         </p>
       </div>
 
       {/* Per-file cards */}
       <div className="space-y-3">
-        <h4 className="text-sm font-semibold text-gray-900">Per-File Details</h4>
+        <h4 className="text-sm font-semibold text-white">Per-File Details</h4>
         {Object.entries(profile.metrics.files).map(([key, f]) => (
           <FileCard key={key} fileKey={key} f={f} />
         ))}
@@ -410,8 +410,8 @@ function ProfileDashboard({ profile, sessionId }: { profile: ProfilingResponse; 
       />
 
       {/* Divider before preprocess action */}
-      <div className="border-t border-dashed border-gray-200 pt-6">
-        <p className="text-xs text-gray-400 mb-4">
+      <div className="border-t border-dashed border-void-border pt-6">
+        <p className="text-xs text-white/35 mb-4">
           Review the profile above, then run preprocessing to normalize vendor names.
         </p>
       </div>
@@ -451,16 +451,16 @@ function NormalizationTable({ entries }: { entries: NormalizationEntry[] }) {
   const Th = ({ k, label }: { k: SortKey; label: string }) => (
     <th
       onClick={() => handleSort(k)}
-      className="text-left py-2 px-3 text-xs font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
+      className="text-left py-2 px-3 text-xs font-medium text-white/50 cursor-pointer hover:bg-void-elevated select-none whitespace-nowrap"
     >
       {label}{sortKey === k ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
   )
 
   const tierColor: Record<string, string> = {
-    tier1: 'bg-green-100 text-green-700',
-    tier2: 'bg-blue-100 text-blue-700',
-    tier3: 'bg-purple-100 text-purple-700',
+    tier1: 'bg-emerald-500/15 text-emerald-300',
+    tier2: 'bg-bdo-red/15 text-bdo-red-light',
+    tier3: 'bg-violet-500/15 text-violet-300',
   }
 
   return (
@@ -471,15 +471,15 @@ function NormalizationTable({ entries }: { entries: NormalizationEntry[] }) {
           placeholder="Filter vendors…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="border border-gray-200 rounded-md px-3 py-1.5 text-sm w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
+          className="bg-void-elevated border border-void-border rounded-xl px-3 py-1.5 text-sm text-white w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-bdo-red/40"
         />
-        <span className="text-xs text-gray-400 flex-shrink-0">
+        <span className="text-xs text-white/35 flex-shrink-0">
           {sorted.length} / {entries.length}
         </span>
       </div>
-      <div className="overflow-x-auto border border-gray-200 rounded-md">
+      <div className="overflow-x-auto border border-void-border rounded-md">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead className="bg-void-elevated border-b border-void-border">
             <tr>
               <Th k="original_vendor" label="Original Vendor" />
               <Th k="normalized_vendor" label="Normalized" />
@@ -488,20 +488,20 @@ function NormalizationTable({ entries }: { entries: NormalizationEntry[] }) {
               <Th k="similarity_score" label="Similarity" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-void-border/50">
             {sorted.map((entry, i) => (
-              <tr key={i} className="hover:bg-gray-50">
-                <td className="py-2 px-3 font-mono text-xs text-gray-800">{entry.original_vendor}</td>
-                <td className="py-2 px-3 font-mono text-xs text-gray-700">{entry.normalized_vendor}</td>
-                <td className="py-2 px-3 font-mono text-xs text-gray-500">
-                  {entry.matched_to ?? <span className="text-gray-300">—</span>}
+              <tr key={i} className="hover:bg-void-elevated">
+                <td className="py-2 px-3 font-mono text-xs text-white/90">{entry.original_vendor}</td>
+                <td className="py-2 px-3 font-mono text-xs text-white/75">{entry.normalized_vendor}</td>
+                <td className="py-2 px-3 font-mono text-xs text-white/50">
+                  {entry.matched_to ?? <span className="text-white/25">—</span>}
                 </td>
                 <td className="py-2 px-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tierColor[entry.match_source] ?? 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tierColor[entry.match_source] ?? 'bg-void-border text-white/50'}`}>
                     {entry.match_source}
                   </span>
                 </td>
-                <td className="py-2 px-3 text-xs text-gray-600 tabular-nums">
+                <td className="py-2 px-3 text-xs text-white/60 tabular-nums">
                   {entry.similarity_score != null
                     ? `${(entry.similarity_score * 100).toFixed(1)}%`
                     : '—'}
@@ -519,9 +519,9 @@ function NormalizationResult({ data }: { data: PreprocessingResponse }) {
   const s = data.normalization_summary
   const vendorSheets = useMemo(() => buildVendorMapSheets(data), [data])
   const tierData = [
-    { label: 'Tier 1', count: s.tier1_count, color: 'bg-green-100 text-green-700', desc: 'Alias / rules' },
-    { label: 'Tier 2', count: s.tier2_count, color: 'bg-blue-100 text-blue-700', desc: 'NLP fuzzy' },
-    { label: 'Tier 3', count: s.tier3_count, color: 'bg-purple-100 text-purple-700', desc: 'AI stub' },
+    { label: 'Tier 1', count: s.tier1_count, color: 'bg-emerald-500/15 text-emerald-300', desc: 'Alias / rules' },
+    { label: 'Tier 2', count: s.tier2_count, color: 'bg-bdo-red/15 text-bdo-red-light', desc: 'NLP fuzzy' },
+    { label: 'Tier 3', count: s.tier3_count, color: 'bg-violet-500/15 text-violet-300', desc: 'AI stub' },
   ]
 
   return (
@@ -537,24 +537,24 @@ function NormalizationResult({ data }: { data: PreprocessingResponse }) {
             </div>
           ))}
         </div>
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-          <p className="text-xs text-gray-500">Total GL Vendors</p>
-          <p className="text-xl font-bold text-gray-900">{s.total_unique_gl_vendors}</p>
+        <div className="bg-void-elevated border border-void-border rounded-lg p-3 text-center">
+          <p className="text-xs text-white/50">Total GL Vendors</p>
+          <p className="text-xl font-bold text-white">{s.total_unique_gl_vendors}</p>
         </div>
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-          <p className="text-xs text-gray-500">Threshold</p>
-          <p className="text-xl font-bold text-gray-900">{(s.threshold_used * 100).toFixed(0)}%</p>
+        <div className="bg-void-elevated border border-void-border rounded-lg p-3 text-center">
+          <p className="text-xs text-white/50">Threshold</p>
+          <p className="text-xl font-bold text-white">{(s.threshold_used * 100).toFixed(0)}%</p>
         </div>
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
-          <p className="text-xs text-gray-500">Alias Version</p>
-          <p className="text-sm font-bold text-gray-900 mt-1">{s.alias_version}</p>
+        <div className="bg-void-elevated border border-void-border rounded-lg p-3 text-center">
+          <p className="text-xs text-white/50">Alias Version</p>
+          <p className="text-sm font-bold text-white mt-1">{s.alias_version}</p>
         </div>
       </div>
 
       <div>
-        <h4 className="text-sm font-semibold text-gray-900 mb-3">
+        <h4 className="text-sm font-semibold text-white mb-3">
           Vendor Normalization Map{' '}
-          <span className="font-normal text-gray-400 text-xs">
+          <span className="font-normal text-white/35 text-xs">
             ({data.vendor_normalization_map.length} entries)
           </span>
         </h4>
@@ -566,7 +566,7 @@ function NormalizationResult({ data }: { data: PreprocessingResponse }) {
         sheets={vendorSheets}
       />
 
-      <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm text-green-800">
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-sm text-emerald-300">
         Preprocessing complete. State: <strong>{data.state}</strong>
       </div>
     </div>
@@ -601,22 +601,22 @@ export default function PreprocessStep({ sessionId, onSuccess }: Props) {
   })
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="glass-card p-6">
       {/* Analytics dashboard from the previous Profile step */}
       {profile ? (
         <ProfileDashboard profile={profile} sessionId={sessionId} />
       ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-500 mb-6">
+        <div className="bg-void-elevated border border-void-border rounded-xl p-3 text-sm text-white/50 mb-6">
           Profile analytics not available in this view (run the Profile step in this browser session
           to see the dashboard here).
         </div>
       )}
 
       {/* Preprocess action */}
-      <h2 className="text-base font-semibold text-gray-900 mb-1">
+      <h2 className="text-base font-semibold text-white mb-1">
         Preprocess — Vendor Normalization
       </h2>
-      <p className="text-sm text-gray-500 mb-4">
+      <p className="text-sm text-white/50 mb-4">
         Run the 3-tier normalization pipeline (alias map → NLP fuzzy → AI stub) to produce
         consistent vendor keys for downstream matching.
       </p>
@@ -630,7 +630,7 @@ export default function PreprocessStep({ sessionId, onSuccess }: Props) {
       <button
         onClick={() => mutation.mutate()}
         disabled={mutation.isPending}
-        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
+        className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {mutation.isPending ? 'Preprocessing…' : 'Run Preprocessing'}
       </button>

@@ -1,3 +1,118 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background-color: #0A0A0A;
+  }
+}
+
+@layer components {
+  /* Glassmorphic card */
+  .glass-card {
+    @apply bg-void-surface border border-void-border rounded-2xl;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  .glass-card:focus-within {
+    @apply border-glass-border;
+  }
+
+  /* Primary pill button — BDO Red */
+  .btn-primary {
+    @apply bg-bdo-red hover:bg-bdo-red-dark text-white font-semibold px-5 py-2 rounded-pill
+           transition-all duration-200 active:scale-95
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100
+           inline-flex items-center justify-center gap-2 text-sm;
+  }
+
+  /* Secondary pill button — dark */
+  .btn-secondary {
+    @apply bg-void-elevated hover:bg-void-border text-white/80 hover:text-white font-medium px-5 py-2 rounded-pill
+           border border-void-border hover:border-glass-border
+           transition-all duration-200 active:scale-95
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100
+           inline-flex items-center justify-center gap-2 text-sm;
+  }
+
+  /* Hero pill button — white (on red backgrounds) */
+  .btn-hero {
+    @apply bg-white hover:bg-gray-100 text-void font-semibold px-7 py-2.5 rounded-pill
+           transition-all duration-200 active:scale-95 shadow-card hover:shadow-card-hover
+           inline-flex items-center justify-center gap-2 text-sm;
+  }
+
+  /* Status badge */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium;
+  }
+
+  /* Data label */
+  .data-label {
+    @apply text-[10px] uppercase tracking-widest font-medium text-white/40;
+  }
+
+  /* Data value */
+  .data-value {
+    @apply text-xl font-bold text-white tabular-nums;
+  }
+}
+
+@layer utilities {
+  .animate-in {
+    animation: slide-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* ── AG Grid dark theme overrides ─────────────────────────────────────────── */
+.ag-theme-alpine {
+  --ag-background-color: #161616;
+  --ag-odd-row-background-color: #1a1a1a;
+  --ag-header-background-color: #1f1f1f;
+  --ag-border-color: #2a2a2a;
+  --ag-row-hover-color: rgba(204, 37, 41, 0.08);
+  --ag-selected-row-background-color: rgba(204, 37, 41, 0.15);
+  --ag-foreground-color: rgba(255, 255, 255, 0.85);
+  --ag-header-foreground-color: rgba(255, 255, 255, 0.45);
+  --ag-secondary-foreground-color: rgba(255, 255, 255, 0.45);
+  --ag-input-focus-border-color: #CC2529;
+  --ag-range-selection-border-color: #CC2529;
+  --ag-checkbox-checked-color: #CC2529;
+  --ag-font-size: 12px;
+  --ag-font-family: 'Inter', system-ui, sans-serif;
+  --ag-row-border-color: #2a2a2a;
+  --ag-cell-horizontal-border: solid #2a2a2a;
+  --ag-header-column-separator-color: #2a2a2a;
+  --ag-pagination-button-color: rgba(255, 255, 255, 0.6);
+  --ag-pagination-button-hover-color: #CC2529;
+}
+
+.ag-theme-alpine .ag-root-wrapper {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ag-theme-alpine .ag-header {
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.ag-theme-alpine .ag-paging-panel {
+  color: rgba(255, 255, 255, 0.5);
+  border-top: 1px solid #2a2a2a;
+}
+
+.ag-theme-alpine .ag-filter-toolpanel-header,
+.ag-theme-alpine .ag-filter-toolpanel-search,
+.ag-theme-alpine .ag-status-bar,
+.ag-theme-alpine .ag-side-buttons {
+  background-color: #161616;
+}

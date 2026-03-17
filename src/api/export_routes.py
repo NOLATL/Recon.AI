@@ -101,6 +101,7 @@ def run_finalization_export(session_id: str):
     clean_data       = runtime.get("clean_data",         {})
     snapshots        = runtime.get("snapshots",          {})
     manual_overrides = runtime.get("manual_overrides",   {})
+    manual_rejected  = runtime.get("manual_rejected",    [])
 
     # --- Run export (pure, writes files to temp dir) ---
     manifest = run_export(
@@ -119,6 +120,7 @@ def run_finalization_export(session_id: str):
         matching=         matching,
         session_id=       session_id,
         manual_overrides= manual_overrides,
+        manual_rejected=  manual_rejected,
     )
 
     # --- Write export metadata BEFORE state advance so snapshot captures it ---

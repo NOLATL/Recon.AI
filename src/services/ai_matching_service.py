@@ -91,7 +91,7 @@ Output format:
       "gl_ids":     ["<gl_id>"],
       "sub_ids":    ["<subledger_id>"],
       "confidence": <float 0.0–1.0>,
-      "reasoning":  "<one sentence for the reviewer>"
+      "reasoning":  "<sentence 1: why these records were matched. Sentence 2: what drove the confidence score up or down.>"
     }
   ]
 }"""

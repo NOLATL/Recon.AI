@@ -33,6 +33,7 @@ Source layer detection:
 import hashlib
 import os
 import tempfile
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -426,6 +427,231 @@ def _build_process_log_ai(
 
 
 # ---------------------------------------------------------------------------
+# Chart helpers — pure FPDF drawing primitives (no external image libraries)
+# ---------------------------------------------------------------------------
+
+# RGB colour palette
+_SEG_COLORS: List[Tuple[int, int, int]] = [
+    (76, 175, 80),    # green  — Deterministic
+    (33, 150, 243),   # blue   — Probabilistic
+    (156, 39, 176),   # purple — AI Matches
+    (255, 152, 0),    # orange — Unmatched
+]
+_MATCHED_RGB:   Tuple[int, int, int] = (76, 175, 80)
+_UNMATCHED_RGB: Tuple[int, int, int] = (255, 152, 0)
+
+
+def _fill_rect(pdf: FPDF, x: float, y: float, w: float, h: float,
+               r: int, g: int, b: int) -> None:
+    """Draw a filled rectangle without border."""
+    pdf.set_fill_color(r, g, b)
+    pdf.set_draw_color(r, g, b)
+    pdf.rect(x, y, w, h, style="F")
+
+
+def _draw_breakdown_bar(
+    pdf:      FPDF,
+    segments: List[Tuple],  # [(label, count, dollars, (r,g,b)), ...]
+    gl_total: int,
+    x:        float,
+    y:        float,
+    bar_w:    float,
+    bar_h:    float = 10.0,
+) -> float:
+    """
+    Draw a horizontal stacked bar + legend directly on the PDF.
+    Returns total height consumed (mm).
+    """
+    if gl_total == 0:
+        return 0.0
+
+    left = x
+    for label, count, dollars, color in segments:
+        if count <= 0:
+            continue
+        seg_w = bar_w * count / gl_total
+        _fill_rect(pdf, left, y, seg_w, bar_h, *color)
+        pct = count / gl_total * 100
+        if pct > 5 and seg_w > 8:
+            pdf.set_font("Helvetica", "B", 7)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_xy(left, y + (bar_h - 3.5) / 2)
+            pdf.cell(seg_w, 3.5, f"{pct:.0f}%", align="C")
+        left += seg_w
+
+    pdf.set_text_color(0, 0, 0)
+
+    # Legend row
+    legend_y = y + bar_h + 3
+    sq       = 4.0
+    col_w    = bar_w / len(segments)
+    for i, (label, count, dollars, color) in enumerate(segments):
+        lx = x + i * col_w
+        _fill_rect(pdf, lx, legend_y + 0.5, sq, sq, *color)
+        dollar_str = f"${dollars / 1000:.1f}K" if dollars >= 1000 else f"${dollars:,.0f}"
+        pdf.set_font("Helvetica", "", 7)
+        pdf.set_text_color(40, 40, 40)
+        pdf.set_xy(lx + sq + 1, legend_y)
+        pdf.cell(col_w - sq - 2, 5, f"{label}  {count:,}  {dollar_str}")
+
+    pdf.set_text_color(0, 0, 0)
+    return bar_h + 3 + 5 + 2  # bar + gap + legend + bottom margin
+
+
+def _draw_vendor_chart(
+    pdf:         FPDF,
+    vendor_data: List[Tuple],   # [(name, matched_val, unmatched_val), ...] ascending
+    title:       str,
+    x:           float,
+    y:           float,
+    w:           float,
+    dollar:      bool  = False,
+    max_vendors: int   = 12,
+    bar_h:       float = 5.0,
+    gap:         float = 1.5,
+) -> float:
+    """
+    Draw a horizontal stacked bar chart by vendor at (x, y).
+    Returns total height consumed (mm).
+    """
+    vendor_data = vendor_data[-max_vendors:]
+    if not vendor_data:
+        return 0.0
+
+    label_w  = 38.0
+    bar_area = w - label_w
+    total_h  = 0.0
+
+    # Title
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(30, 30, 30)
+    pdf.set_xy(x, y)
+    pdf.cell(w, 6, title, align="C")
+    total_h += 7
+
+    max_val = max((v[1] + v[2]) for v in vendor_data) or 1
+
+    for vd in reversed(vendor_data):   # largest at bottom
+        name      = str(vd[0])[:20]
+        matched   = vd[1]
+        unmatched = vd[2]
+        row_y     = y + total_h
+
+        # Label
+        pdf.set_font("Helvetica", "", 6.5)
+        pdf.set_text_color(40, 40, 40)
+        pdf.set_xy(x, row_y + (bar_h - 3) / 2)
+        pdf.cell(label_w - 1, 3, name, align="R")
+
+        # Background track
+        _fill_rect(pdf, x + label_w, row_y, bar_area, bar_h, 235, 235, 235)
+
+        # Matched segment
+        m_w = bar_area * matched / max_val
+        if m_w > 0:
+            _fill_rect(pdf, x + label_w, row_y, m_w, bar_h, *_MATCHED_RGB)
+
+        # Unmatched segment
+        u_w = bar_area * unmatched / max_val
+        if u_w > 0:
+            _fill_rect(pdf, x + label_w + m_w, row_y, u_w, bar_h, *_UNMATCHED_RGB)
+
+        total_h += bar_h + gap
+
+    # Scale labels
+    ax_y = y + total_h
+    pdf.set_font("Helvetica", "", 6)
+    pdf.set_text_color(120, 120, 120)
+    pdf.set_xy(x + label_w, ax_y)
+    pdf.cell(bar_area / 2, 4, "0", align="L")
+    max_label = (
+        f"${max_val / 1000:.1f}K" if dollar and max_val >= 1000
+        else f"${max_val:,.0f}" if dollar
+        else str(int(max_val))
+    )
+    pdf.set_xy(x + label_w, ax_y)
+    pdf.cell(bar_area, 4, max_label, align="R")
+    total_h += 5
+
+    # Legend
+    leg_y = y + total_h
+    _fill_rect(pdf, x + label_w, leg_y + 0.5, 4, 4, *_MATCHED_RGB)
+    pdf.set_font("Helvetica", "", 6.5)
+    pdf.set_text_color(40, 40, 40)
+    pdf.set_xy(x + label_w + 5, leg_y)
+    pdf.cell(20, 4, "Matched")
+    _fill_rect(pdf, x + label_w + 28, leg_y + 0.5, 4, 4, *_UNMATCHED_RGB)
+    pdf.set_xy(x + label_w + 33, leg_y)
+    pdf.cell(20, 4, "Unmatched")
+
+    pdf.set_text_color(0, 0, 0)
+    total_h += 8
+    return total_h
+
+
+def _add_vendor_detail_section(
+    pdf: FPDF,
+    title: str,
+    total_count: int,
+    total_amount: float,
+    vendor_counts: dict,
+    vendor_dollars: dict,
+    page_w: float,
+) -> None:
+    """Render a rejected/override vendor breakdown section into the PDF."""
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 7, title, ln=True)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(0, 5, f"Total: {total_count:,} records   ${total_amount:,.2f}", ln=True)
+
+    if not vendor_counts:
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 5, "None.", ln=True)
+        return
+
+    col1 = page_w * 0.55
+    col2 = page_w * 0.18
+    col3 = page_w * 0.27
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.cell(col1, 5, "Vendor", border=1)
+    pdf.cell(col2, 5, "Count", border=1, align="C")
+    pdf.cell(col3, 5, "Dollar Total", border=1, align="R", ln=True)
+
+    pdf.set_font("Helvetica", "", 8)
+    sorted_vendors = sorted(vendor_counts.items(), key=lambda x: -x[1])[:10]
+    for vendor, count in sorted_vendors:
+        dollars = vendor_dollars.get(vendor, 0.0)
+        v_name  = str(vendor)[:42] if len(str(vendor)) > 42 else str(vendor)
+        pdf.cell(col1, 5, v_name, border=1)
+        pdf.cell(col2, 5, str(count), border=1, align="C")
+        pdf.cell(col3, 5, f"${dollars:,.2f}", border=1, align="R", ln=True)
+
+
+# ---------------------------------------------------------------------------
+# PDF subclass — auto-renders footer with page numbers on every page
+# ---------------------------------------------------------------------------
+
+class _ReconPDF(FPDF):
+    _session_id: str = ""
+    _exported_at: str = ""
+    _ai_model: str = ""
+
+    def footer(self) -> None:
+        self.set_y(-15)
+        self.set_font("Helvetica", "", 7)
+        self.set_text_color(120, 120, 120)
+        ts = self._exported_at[:19].replace("T", " ") if self._exported_at else ""
+        text = (
+            f"Timestamp of report generation: {ts} UTC   |   "
+            f"Session ID: {self._session_id}   |   "
+            f"AI Model: {self._ai_model}   |   "
+            f"Page {self.page_no()} of {{nb}}"
+        )
+        self.cell(0, 5, text, align="C")
+
+
+# ---------------------------------------------------------------------------
 # PDF builder
 # ---------------------------------------------------------------------------
 
@@ -434,79 +660,212 @@ def _build_pdf(
     consolidation: dict,
     ai_meta:       dict,
     exported_at:   str,
+    gl_df:         pd.DataFrame,
+    final_matches: List[dict],
+    residual_gl_df: pd.DataFrame,
+    all_rejected:  List[dict],
+    gl_lookup:     Dict[str, dict],
+    manual_overrides: Optional[Dict[str, List[str]]],
+    det_matches:   List[dict],
+    prob_accepted: List[dict],
+    ai_final:      List[dict],
+    narrative:     str,
 ) -> bytes:
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    # ---- Compute KPI metrics ------------------------------------------------
+    _gl_df = gl_df if gl_df is not None and not gl_df.empty else pd.DataFrame()
+    gl_total = len(_gl_df)
+
+    # Amount map: gl_id → float amount
+    amount_col = "amount"
+    gl_amount_map: Dict[str, float] = {}
+    if not _gl_df.empty and "gl_id" in _gl_df.columns and amount_col in _gl_df.columns:
+        gl_amount_map = dict(zip(
+            _gl_df["gl_id"].astype(str),
+            pd.to_numeric(_gl_df[amount_col], errors="coerce").fillna(0.0),
+        ))
+
+    def _sum_amt(id_set: set) -> float:
+        return sum(gl_amount_map.get(gid, 0.0) for gid in id_set)
+
+    # Rejected GL IDs first — needed to exclude from matched sets below
+    rej_gl_ids = {str(x) for m in all_rejected for x in m.get("record_ids_A", [])}
+    rej_amount = _sum_amt(rej_gl_ids)
+
+    # GL IDs matched by each layer (mutually exclusive sets, rejected IDs excluded)
+    det_ids  = {str(x) for m in det_matches  for x in m.get("record_ids_A", [])} - rej_gl_ids
+    prob_ids = {str(x) for m in prob_accepted for x in m.get("record_ids_A", [])} - rej_gl_ids - det_ids
+    ai_ids   = {str(x) for m in ai_final     for x in m.get("record_ids_A", [])} - rej_gl_ids - det_ids - prob_ids
+    man_ids  = {str(gid) for gid in (manual_overrides or {})} - det_ids - prob_ids - ai_ids
+    all_matched_ids = det_ids | prob_ids | ai_ids | man_ids
+
+    res_gl_ids: set = set()
+    if residual_gl_df is not None and not residual_gl_df.empty and "gl_id" in residual_gl_df.columns:
+        res_gl_ids = set(residual_gl_df["gl_id"].astype(str))
+
+    gl_matched_count   = len(all_matched_ids)
+    gl_unmatched_count = len(res_gl_ids)
+    match_rate         = gl_matched_count / gl_total * 100 if gl_total else 0.0
+
+    matched_amount   = _sum_amt(all_matched_ids)
+    unmatched_amount = _sum_amt(res_gl_ids)
+    det_amount       = _sum_amt(det_ids)
+    prob_amount      = _sum_amt(prob_ids)
+    ai_amount        = _sum_amt(ai_ids | man_ids)
+
+    override_count  = len(man_ids)
+    override_amount = _sum_amt(man_ids)
+
+    # ---- Vendor breakdown ---------------------------------------------------
+    vendor_col = "vendor_name"
+    vendor_map: Dict[str, str] = {}
+    if not _gl_df.empty and "gl_id" in _gl_df.columns and vendor_col in _gl_df.columns:
+        for _, row in _gl_df.iterrows():
+            vendor_map[str(row["gl_id"])] = str(row.get(vendor_col, "Unknown"))
+
+    v_matched_count:    Dict[str, int]   = defaultdict(int)
+    v_unmatched_count:  Dict[str, int]   = defaultdict(int)
+    v_matched_dollars:  Dict[str, float] = defaultdict(float)
+    v_unmatched_dollars: Dict[str, float] = defaultdict(float)
+
+    for gid in all_matched_ids:
+        v = vendor_map.get(gid, "Unknown")
+        v_matched_count[v]   += 1
+        v_matched_dollars[v] += gl_amount_map.get(gid, 0.0)
+    for gid in res_gl_ids:
+        v = vendor_map.get(gid, "Unknown")
+        v_unmatched_count[v]   += 1
+        v_unmatched_dollars[v] += gl_amount_map.get(gid, 0.0)
+
+    all_vendors = set(v_matched_count) | set(v_unmatched_count)
+    vendor_data = sorted(
+        [(v, v_matched_count[v], v_unmatched_count[v],
+          v_matched_dollars[v], v_unmatched_dollars[v])
+         for v in all_vendors],
+        key=lambda x: x[1] + x[2],  # ascending by total count
+    )
+
+    v_rej_count:    Dict[str, int]   = defaultdict(int)
+    v_rej_dollars:  Dict[str, float] = defaultdict(float)
+    for gid in rej_gl_ids:
+        v = vendor_map.get(gid, "Unknown")
+        v_rej_count[v]   += 1
+        v_rej_dollars[v] += gl_amount_map.get(gid, 0.0)
+
+    v_over_count:    Dict[str, int]   = defaultdict(int)
+    v_over_dollars:  Dict[str, float] = defaultdict(float)
+    for gid in man_ids:
+        v = vendor_map.get(gid, "Unknown")
+        v_over_count[v]   += 1
+        v_over_dollars[v] += gl_amount_map.get(gid, 0.0)
+
+    # ---- BUILD PDF ----------------------------------------------------------
+    pdf = _ReconPDF()
+    pdf._session_id = session_id
+    pdf._exported_at = exported_at
+    pdf._ai_model = ai_meta.get("model_used", "N/A")
+    pdf.alias_nb_pages()
+    pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
+    page_w = pdf.w - pdf.l_margin - pdf.r_margin  # usable width (mm)
 
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 12, "Reconciliation Report", ln=True, align="C")
+    # -- Title ----------------------------------------------------------------
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.cell(0, 10, "RECONCILIATION REPORT", ln=True, align="C")
     pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 6, f"Generated: {exported_at}", ln=True, align="C")
-    pdf.ln(6)
+    pdf.cell(0, 6, exported_at[:10], ln=True, align="C")
+    pdf.ln(5)
 
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 9, "Executive Summary", ln=True)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 6, f"Session ID : {session_id}", ln=True)
-    pdf.cell(0, 6, "Final State: finalized", ln=True)
-    pdf.cell(0, 6, f"Report Date: {exported_at[:10]}", ln=True)
-    pdf.ln(4)
+    # -- KPI Cards (5 across) -------------------------------------------------
+    card_w = page_w / 5
+    card_h = 20.0
+    y_cards = pdf.get_y()
 
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 9, "Reconciliation Statistics", ln=True)
-
-    stats = [
-        ("Deterministic Matches",              consolidation.get("deterministic_match_count", 0)),
-        ("Probabilistic Matches (accepted)",   consolidation.get("probabilistic_match_count", 0)),
-        ("AI-Assisted Matches (accepted)",     consolidation.get("ai_match_count",            0)),
-        ("Total Accepted Matches",             consolidation.get("total_match_count",         0)),
-        ("Residual GL Records",                consolidation.get("residual_gl_count",         0)),
-        ("Residual Subledger Records",         consolidation.get("residual_sub_count",        0)),
-        ("Rejected Matches",                   consolidation.get("rejected_count",            0)),
+    kpi_items = [
+        ("GL ROWS MATCHED",     f"{gl_matched_count:,}"),
+        ("GL ROWS NOT MATCHED", f"{gl_unmatched_count:,}"),
+        ("MATCH RATE",          f"{match_rate:.1f}%"),
+        ("MATCHED AMOUNT",      f"${matched_amount:,.2f}"),
+        ("UNMATCHED AMOUNT",    f"${unmatched_amount:,.2f}"),
     ]
+    for i, (label, value) in enumerate(kpi_items):
+        cx = pdf.l_margin + i * card_w
+        pdf.set_fill_color(245, 245, 245)
+        pdf.rect(cx, y_cards, card_w - 1, card_h, style="FD")
+        pdf.set_font("Helvetica", "", 6)
+        pdf.set_text_color(100, 100, 100)
+        pdf.set_xy(cx + 1, y_cards + 2)
+        pdf.cell(card_w - 2, 4, label, align="C")
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_xy(cx + 1, y_cards + 8)
+        pdf.cell(card_w - 2, 9, value, align="C")
 
-    pdf.set_font("Helvetica", "B", 10)
-    col_w, val_w = 110, 40
-    pdf.cell(col_w, 7, "Metric", border=1)
-    pdf.cell(val_w, 7, "Count", border=1, ln=True)
-    pdf.set_font("Helvetica", "", 10)
-    for label, value in stats:
-        pdf.cell(col_w, 7, label, border=1)
-        pdf.cell(val_w, 7, str(value), border=1, align="R", ln=True)
+    pdf.set_y(y_cards + card_h + 5)
+
+    # -- Match Breakdown ------------------------------------------------------
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 8, "Match Breakdown", ln=True)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 4, f"GL row distribution across match layers (total: {gl_total:,} GL rows)", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+
+    segments = [
+        ("Deterministic", len(det_ids),         det_amount,       _SEG_COLORS[0]),
+        ("Probabilistic", len(prob_ids),         prob_amount,      _SEG_COLORS[1]),
+        ("AI Matches",    len(ai_ids | man_ids), ai_amount,        _SEG_COLORS[2]),
+        ("Unmatched",     len(res_gl_ids),       unmatched_amount, _SEG_COLORS[3]),
+    ]
+    breakdown_h = _draw_breakdown_bar(pdf, segments, gl_total,
+                                      pdf.l_margin, pdf.get_y(), page_w)
+    pdf.set_y(pdf.get_y() + breakdown_h)
+    pdf.ln(3)
+
+    # -- Summary --------------------------------------------------------------
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Summary", ln=True)
+    pdf.set_font("Helvetica", "", 9)
+    safe_narrative = (narrative or "No narrative available.").encode("latin-1", errors="replace").decode("latin-1")
+    pdf.multi_cell(0, 5, safe_narrative)
+    pdf.ln(5)
+
+    # -- Charts ---------------------------------------------------------------
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Charts", ln=True)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 4, "Left side of page: GL record count by vendor   |   Right side of page: GL dollar amount by vendor", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+
+    chart_w = page_w / 2 - 2.0
+    y_charts = pdf.get_y()
+
+    count_vendor_data  = [(v[0], v[1], v[2]) for v in vendor_data]
+    dollar_vendor_data = [(v[0], v[3], v[4]) for v in vendor_data]
+
+    h_left  = _draw_vendor_chart(pdf, count_vendor_data,  "GL Record Count by Vendor",
+                                 pdf.l_margin, y_charts, chart_w, dollar=False, max_vendors=5)
+    h_right = _draw_vendor_chart(pdf, dollar_vendor_data, "GL Dollar Amount by Vendor",
+                                 pdf.l_margin + chart_w + 4, y_charts, chart_w, dollar=True, max_vendors=5)
+
+    pdf.set_y(y_charts + max(h_left, h_right) + 3)
+
+    # -- Rejected & Override Detail -------------------------------------------
+    pdf.ln(2)
+    _add_vendor_detail_section(
+        pdf, "Rejected Matches",
+        len(rej_gl_ids), rej_amount,
+        v_rej_count, v_rej_dollars, page_w,
+    )
     pdf.ln(4)
-
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 9, "Override Summary", ln=True)
-    pdf.set_font("Helvetica", "", 10)
-    override_count = consolidation.get("override_count", 0)
-    if override_count == 0:
-        pdf.cell(0, 6, "No manual overrides were applied in this reconciliation run.", ln=True)
-    else:
-        pdf.cell(0, 6, f"{override_count} manual override(s) were applied.", ln=True)
-    pdf.ln(4)
-
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 9, "AI Narrative Insights", ln=True)
-    pdf.set_font("Helvetica", "", 10)
-    model_used       = ai_meta.get("model_used", "")
-    suggestion_count = ai_meta.get("suggestion_count", 0)
-    if model_used:
-        pdf.cell(0, 6, f"AI Model    : {model_used}", ln=True)
-    if suggestion_count:
-        pdf.cell(0, 6, f"Suggestions : {suggestion_count} AI match(es) proposed", ln=True)
-    narrative = ai_meta.get("narrative", "")
-    if narrative:
-        pdf.ln(2)
-        pdf.set_font("Helvetica", "I", 10)
-        pdf.multi_cell(0, 6, narrative)
-    else:
-        accepted_ai  = consolidation.get("ai_match_count", 0)
-        summary_line = (
-            f"The AI advisory layer proposed {suggestion_count} match(es). "
-            f"{accepted_ai} were accepted and incorporated into the final dataset."
-        )
-        pdf.multi_cell(0, 6, summary_line)
+    _add_vendor_detail_section(
+        pdf, "Manual Overrides",
+        override_count, override_amount,
+        v_over_count, v_over_dollars, page_w,
+    )
 
     return bytes(pdf.output())
 
@@ -531,6 +890,7 @@ def run_export(
     matching:         dict,             # runtime["matching"] — for audit/process logs
     session_id:       str,
     manual_overrides: Optional[Dict[str, List[str]]] = None,  # {gl_id: [sub_id, ...]}
+    manual_rejected:  Optional[List[dict]] = None,            # [{match_id, record_ids_A, record_ids_B}]
     export_dir:       Optional[str] = None,
 ) -> ExportManifest:
     """
@@ -637,24 +997,70 @@ def run_export(
         for sid in sub_ids
     }
 
-    # -- 8. residual_unmatched_gl.csv — exclude manually overridden GL rows ─
+    # Collect GL/Sub IDs from manually-rejected matches that are NOT overridden.
+    manually_rejected_gl_ids:  List[str] = []
+    manually_rejected_sub_ids: List[str] = []
+    for entry in (manual_rejected or []):
+        for gid in entry.get("record_ids_A", []):
+            s = str(gid)
+            if s and s not in overridden_gl_ids:
+                manually_rejected_gl_ids.append(s)
+        for sid in entry.get("record_ids_B", []):
+            s = str(sid)
+            if s and s not in overridden_sub_ids:
+                manually_rejected_sub_ids.append(s)
+
+    # -- 8. residual_unmatched_gl.csv ──────────────────────────────────────
+    # Backend residuals + manually-rejected GL rows (minus overrides).
     gl_res = residual_gl if residual_gl is not None else pd.DataFrame()
     if overridden_gl_ids and not gl_res.empty and "gl_id" in gl_res.columns:
         gl_res = gl_res[~gl_res["gl_id"].astype(str).isin(overridden_gl_ids)].copy()
+    if manually_rejected_gl_ids:
+        extra_gl_rows = [
+            gl_lookup[gid] for gid in manually_rejected_gl_ids
+            if gid in gl_lookup
+            and (gl_res.empty or gid not in gl_res.get("gl_id", pd.Series(dtype=str)).astype(str).values)
+        ]
+        if extra_gl_rows:
+            extra_gl_df = pd.DataFrame(extra_gl_rows)
+            gl_res = pd.concat([gl_res, extra_gl_df], ignore_index=True) if not gl_res.empty else extra_gl_df
     manifest.files.append(
         _write_dataframe_csv(gl_res, os.path.join(export_dir, "residual_unmatched_gl.csv"))
     )
 
-    # -- 9. residual_unmatched_sub.csv — exclude manually overridden Sub rows
+    # -- 9. residual_unmatched_sub.csv ─────────────────────────────────────
+    # Backend residuals + manually-rejected Sub rows (minus overrides).
     sub_res = residual_sub if residual_sub is not None else pd.DataFrame()
     if overridden_sub_ids and not sub_res.empty and "subledger_id" in sub_res.columns:
         sub_res = sub_res[~sub_res["subledger_id"].astype(str).isin(overridden_sub_ids)].copy()
+    if manually_rejected_sub_ids:
+        extra_sub_rows = [
+            sub_lookup[sid] for sid in manually_rejected_sub_ids
+            if sid in sub_lookup
+            and (sub_res.empty or sid not in sub_res.get("subledger_id", pd.Series(dtype=str)).astype(str).values)
+        ]
+        if extra_sub_rows:
+            extra_sub_df = pd.DataFrame(extra_sub_rows)
+            sub_res = pd.concat([sub_res, extra_sub_df], ignore_index=True) if not sub_res.empty else extra_sub_df
     manifest.files.append(
         _write_dataframe_csv(sub_res, os.path.join(export_dir, "residual_unmatched_sub.csv"))
     )
 
     # -- 10. rejected_matches.csv ──────────────────────────────────────────
-    rej_df = _expand_matches_with_data(rejected, "rejected", gl_lookup, sub_lookup)
+    # Pipeline-rejected + UI-manually-rejected matches.
+    ui_rejected_synthetic = [
+        {
+            "match_id":      entry.get("match_id", f"UI_REJECTED_{i}"),
+            "record_ids_A":  entry.get("record_ids_A", []),
+            "record_ids_B":  entry.get("record_ids_B", []),
+            "user_status":   "ui_rejected",
+            "grouping_type": "one_to_one",
+            "override_flag": False,
+        }
+        for i, entry in enumerate(manual_rejected or [])
+    ]
+    all_rejected = rejected + ui_rejected_synthetic
+    rej_df = _expand_matches_with_data(all_rejected, "rejected", gl_lookup, sub_lookup)
     manifest.files.append(
         _write_dataframe_csv(rej_df, os.path.join(export_dir, "rejected_matches.csv"))
     )
@@ -687,7 +1093,70 @@ def run_export(
     )
 
     # -- 15. reconciliation_report.pdf ─────────────────────────────────────
-    pdf_bytes = _build_pdf(session_id, consolidation, ai_meta, exported_at)
+    # Build amount map for narrative stats (rejected/override amounts only known here).
+    _gl_df_exp = clean_data.get("gl")
+    if _gl_df_exp is None:
+        _gl_df_exp = pd.DataFrame()
+    _gl_amt_map: Dict[str, float] = {}
+    if not _gl_df_exp.empty and "gl_id" in _gl_df_exp.columns and "amount" in _gl_df_exp.columns:
+        _gl_amt_map = dict(zip(
+            _gl_df_exp["gl_id"].astype(str),
+            pd.to_numeric(_gl_df_exp["amount"], errors="coerce").fillna(0.0),
+        ))
+
+    def _amt(ids: set) -> float:
+        return sum(_gl_amt_map.get(gid, 0.0) for gid in ids)
+
+    _det_ids  = {str(x) for m in det_matches  for x in m.get("record_ids_A", [])}
+    _prob_ids = {str(x) for m in prob_accepted for x in m.get("record_ids_A", [])}
+    _ai_ids   = {str(x) for m in ai_final      for x in m.get("record_ids_A", [])}
+    _man_ids  = {str(gid) for gid in (manual_overrides or {})}
+    _matched  = _det_ids | _prob_ids | _ai_ids | _man_ids
+    _rej_ids  = {str(x) for m in all_rejected  for x in m.get("record_ids_A", [])}
+    _res_ids  = (
+        set(gl_res["gl_id"].astype(str))
+        if not gl_res.empty and "gl_id" in gl_res.columns
+        else set()
+    )
+    _gl_total = len(_gl_df_exp)
+
+    from src.services.summary_narrative_service import generate_summary_narrative
+    _narrative = generate_summary_narrative({
+        "perspective": "GL",
+        "note": "All counts are GL row counts from the General Ledger perspective.",
+        "summary": {
+            "gl_total_rows":         _gl_total,
+            "gl_matched_rows":       len(_matched),
+            "gl_unmatched_rows":     len(_res_ids),
+            "match_rate_pct":        round(len(_matched) / _gl_total * 100, 1) if _gl_total else 0.0,
+            "gl_rows_deterministic": len(_det_ids),
+            "gl_rows_probabilistic": len(_prob_ids),
+            "gl_rows_ai":            len(_ai_ids) + len(_man_ids),
+            "rejected_count":        len(_rej_ids),
+            "rejected_amount":       round(_amt(_rej_ids), 2),
+            "override_count":        len(_man_ids),
+            "override_amount":       round(_amt(_man_ids), 2),
+            "matched_amount":        round(_amt(_matched), 2),
+            "unmatched_amount":      round(_amt(_res_ids), 2),
+        },
+    })
+
+    pdf_bytes = _build_pdf(
+        session_id=session_id,
+        consolidation=consolidation,
+        ai_meta=ai_meta,
+        exported_at=exported_at,
+        gl_df=_gl_df_exp,
+        final_matches=det_matches + prob_accepted + ai_final,
+        residual_gl_df=gl_res,
+        all_rejected=all_rejected,
+        gl_lookup=gl_lookup,
+        manual_overrides=manual_overrides,
+        det_matches=det_matches,
+        prob_accepted=prob_accepted,
+        ai_final=ai_final,
+        narrative=_narrative,
+    )
     manifest.files.append(
         _write_file(os.path.join(export_dir, "reconciliation_report.pdf"), pdf_bytes)
     )

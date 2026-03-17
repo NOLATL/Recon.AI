@@ -40,11 +40,11 @@ function NarrativeCell({ text }: { text: string }) {
   const preview = text.length > 80 ? text.slice(0, 80) + '…' : text
   return (
     <div>
-      <p className="text-gray-600">{open ? text : preview}</p>
+      <p className="text-white/60">{open ? text : preview}</p>
       {text.length > 80 && (
         <button
           onClick={() => setOpen((v) => !v)}
-          className="text-blue-500 hover:text-blue-700 text-[10px] mt-0.5"
+          className="text-bdo-red/70 hover:text-bdo-red-light text-[10px] mt-0.5"
         >
           {open ? 'Collapse' : 'Expand'}
         </button>
@@ -55,56 +55,56 @@ function NarrativeCell({ text }: { text: string }) {
 
 function AIMatchesTable({ suggestions }: { suggestions: AIMatch[] }) {
   if (suggestions.length === 0) {
-    return <p className="text-sm text-gray-500">No AI suggestions generated.</p>
+    return <p className="text-sm text-white/50">No AI suggestions generated.</p>
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
-        <thead className="bg-gray-50">
+        <thead className="bg-void-elevated">
           <tr>
-            <th className="text-left py-2 px-3 font-medium text-gray-600">Match ID</th>
-            <th className="text-left py-2 px-3 font-medium text-gray-600">Grouping</th>
-            <th className="text-right py-2 px-3 font-medium text-gray-600">AI Confidence</th>
-            <th className="text-right py-2 px-3 font-medium text-gray-600">Materiality</th>
-            <th className="text-left py-2 px-3 font-medium text-gray-600">GL IDs</th>
-            <th className="text-left py-2 px-3 font-medium text-gray-600">Sub IDs</th>
-            <th className="text-left py-2 px-3 font-medium text-gray-600">Reasoning</th>
-            <th className="text-left py-2 px-3 font-medium text-gray-600">Status</th>
+            <th className="text-left py-2 px-3 font-medium text-white/40">Match ID</th>
+            <th className="text-left py-2 px-3 font-medium text-white/40">Grouping</th>
+            <th className="text-right py-2 px-3 font-medium text-white/40">AI Confidence</th>
+            <th className="text-right py-2 px-3 font-medium text-white/40">Materiality</th>
+            <th className="text-left py-2 px-3 font-medium text-white/40">GL IDs</th>
+            <th className="text-left py-2 px-3 font-medium text-white/40">Sub IDs</th>
+            <th className="text-left py-2 px-3 font-medium text-white/40">Reasoning</th>
+            <th className="text-left py-2 px-3 font-medium text-white/40">Status</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody className="divide-y divide-void-border/50">
           {suggestions.map((m) => (
-            <tr key={m.match_id} className="hover:bg-gray-50 align-top">
-              <td className="py-2 px-3 font-mono text-gray-700">{m.match_id}</td>
-              <td className="py-2 px-3 text-gray-600">{m.grouping_type}</td>
+            <tr key={m.match_id} className="hover:bg-void-elevated align-top">
+              <td className="py-2 px-3 font-mono text-white/75">{m.match_id}</td>
+              <td className="py-2 px-3 text-white/60">{m.grouping_type}</td>
               <td className="py-2 px-3 text-right font-medium">
                 <span
                   className={
                     m.ai_confidence_score >= 0.8
-                      ? 'text-green-600'
+                      ? 'text-emerald-400'
                       : m.ai_confidence_score >= 0.6
-                        ? 'text-amber-600'
-                        : 'text-red-500'
+                        ? 'text-amber-300'
+                        : 'text-bdo-red-light'
                   }
                 >
                   {(m.ai_confidence_score * 100).toFixed(0)}%
                 </span>
               </td>
-              <td className="py-2 px-3 text-right text-gray-600">
+              <td className="py-2 px-3 text-right text-white/60">
                 {m.materiality.toFixed(2)}
               </td>
-              <td className="py-2 px-3 font-mono text-gray-500 max-w-[80px] truncate">
+              <td className="py-2 px-3 font-mono text-white/50 max-w-[80px] truncate">
                 {m.record_ids_A.join(', ')}
               </td>
-              <td className="py-2 px-3 font-mono text-gray-500 max-w-[80px] truncate">
+              <td className="py-2 px-3 font-mono text-white/50 max-w-[80px] truncate">
                 {m.record_ids_B.join(', ')}
               </td>
               <td className="py-2 px-3 max-w-[220px]">
                 <NarrativeCell text={m.reasoning_narrative} />
               </td>
               <td className="py-2 px-3">
-                <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded text-[10px]">
+                <span className="bg-violet-500/15 text-violet-300 px-1.5 py-0.5 rounded text-[10px]">
                   {m.user_status}
                 </span>
               </td>
@@ -129,20 +129,20 @@ function AIResult({ data }: { data: AIResponse }) {
           ['Model', s.model_used],
           ['Prompt Ver.', s.prompt_version],
         ].map(([label, value]) => (
-          <div key={String(label)} className="bg-gray-50 rounded-md p-3 text-center">
-            <p className="text-xs text-gray-500">{label}</p>
-            <p className="text-sm font-bold text-gray-900 mt-0.5 truncate">{value}</p>
+          <div key={String(label)} className="bg-void-elevated border border-void-border rounded-xl p-3 text-center">
+            <p className="text-xs text-white/50">{label}</p>
+            <p className="text-sm font-bold text-white mt-0.5 truncate">{value}</p>
           </div>
         ))}
       </div>
 
-      <div className="bg-purple-50 border border-purple-100 rounded-md p-3 text-sm text-purple-800">
+      <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 text-sm text-violet-300">
         AI suggestions are <strong>advisory only</strong>. All suggestions must be reviewed before
         acceptance. The residual pool is not modified by this step.
       </div>
 
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-3">AI Suggestions</h4>
+        <h4 className="text-sm font-medium text-white/70 mb-3">AI Suggestions</h4>
         <AIMatchesTable suggestions={data.suggestions} />
       </div>
 
@@ -151,7 +151,7 @@ function AIResult({ data }: { data: AIResponse }) {
         sheets={aiSheets}
       />
 
-      <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm text-green-800">
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-sm text-emerald-300">
         AI phase complete. State: <strong>{data.state}</strong>. Proceed to AI Review.
       </div>
     </div>
@@ -181,9 +181,9 @@ export default function AIStep({ sessionId, onSuccess }: Props) {
   })
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
-      <h2 className="text-base font-semibold text-gray-900 mb-1">AI Suggested Matches</h2>
-      <p className="text-sm text-gray-500 mb-5">
+    <div className="glass-card p-6">
+      <h2 className="text-base font-semibold text-white mb-1">AI Suggested Matches</h2>
+      <p className="text-sm text-white/50 mb-5">
         Generate AI-assisted match suggestions for records remaining in the residual pool. Results
         are advisory only and require human review.
       </p>
@@ -197,7 +197,7 @@ export default function AIStep({ sessionId, onSuccess }: Props) {
       <button
         onClick={() => mutation.mutate()}
         disabled={mutation.isPending}
-        className="bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
+        className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {mutation.isPending ? 'Generating AI suggestions…' : 'Run AI Matching'}
       </button>

@@ -366,6 +366,17 @@ export function getSummaryNarrative(sessionId: string): Promise<{ narrative: str
 // Export
 // ---------------------------------------------------------------------------
 
+/** Save matches the user manually rejected on the Matched Analysis page. */
+export function saveManualRejected(
+  sessionId: string,
+  manualRejected: { match_id: string; record_ids_A: string[]; record_ids_B: string[] }[]
+): Promise<{ session_id: string; rejected_count: number; status: string }> {
+  return apiRequest(
+    `/reconciliation/${sessionId}/manual-rejected`,
+    { method: "POST", body: { manual_rejected: manualRejected }, timeoutMs: 15_000 }
+  )
+}
+
 /** Save manual GL↔Sub override links before exporting. */
 export function saveManualOverrides(
   sessionId: string,

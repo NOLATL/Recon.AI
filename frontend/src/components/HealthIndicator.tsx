@@ -11,8 +11,8 @@ export default function HealthIndicator() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-gray-400">
-        <span className="w-2 h-2 rounded-full bg-gray-300 animate-pulse" />
+      <div className="flex items-center gap-1.5 text-xs text-white/40">
+        <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" />
         API
       </div>
     )
@@ -20,16 +20,16 @@ export default function HealthIndicator() {
 
   if (isError || !data) {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-red-600">
-        <span className="w-2 h-2 rounded-full bg-red-500" />
+      <div className="flex items-center gap-1.5 text-xs text-bdo-red-light">
+        <span className="w-1.5 h-1.5 rounded-full bg-bdo-red" />
         API offline
       </div>
     )
   }
 
   return (
-    <div className="flex items-center gap-1.5 text-xs text-green-700">
-      <span className="w-2 h-2 rounded-full bg-green-500" />
+    <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
       API online
     </div>
   )

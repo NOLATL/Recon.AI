@@ -11,11 +11,11 @@ export function PageLayout({ title, description, children, className }: PageLayo
   return (
     <div className={cn('mx-auto max-w-6xl', className)}>
       <header className="mb-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+        <h1 className="text-3xl font-semibold tracking-tight text-white">
           {title}
         </h1>
         {description != null && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <p className="mt-1 text-sm text-white/90">{description}</p>
         )}
       </header>
       <div className="space-y-6">{children}</div>

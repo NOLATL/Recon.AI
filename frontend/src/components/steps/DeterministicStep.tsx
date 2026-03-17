@@ -125,23 +125,23 @@ function buildDetSheets(data: DeterministicResponse): PanelSheet[] {
 const TIER_META = {
   tier1: {
     label: 'Tier 1 — Alias Map & Rules',
-    color: 'border-green-300 bg-green-50',
-    badge: 'bg-green-100 text-green-800',
-    dot: 'bg-green-500',
+    color: 'border-emerald-500/30 bg-emerald-500/5',
+    badge: 'bg-emerald-500/15 text-emerald-300',
+    dot: 'bg-emerald-500',
     desc: 'Direct lookup in the alias dictionary, then deterministic text normalization: lowercasing, punctuation removal, iterative legal-suffix stripping (LLC, Corp, Inc, Ltd, Co, …), and stopword removal. No ambiguity — if a vendor appears in the alias map or its cleaned form matches exactly, it resolves here.',
   },
   tier2: {
     label: 'Tier 2 — NLP Fuzzy Match',
-    color: 'border-blue-300 bg-blue-50',
-    badge: 'bg-blue-100 text-blue-800',
-    dot: 'bg-blue-500',
+    color: 'border-bdo-red/30 bg-bdo-red/5',
+    badge: 'bg-bdo-red/15 text-bdo-red-light',
+    dot: 'bg-bdo-red',
     desc: 'Token-sort fuzzy similarity (rapidfuzz) against all Subledger vendor names. A match is accepted when similarity ≥ threshold (default 90%). Token-sort scoring reorders tokens alphabetically before comparing, which handles word-order variants ("Acme Corp" vs "Corp Acme") robustly without over-matching subsets.',
   },
   tier3: {
     label: 'Tier 3 — AI Stub',
-    color: 'border-purple-300 bg-purple-50',
-    badge: 'bg-purple-100 text-purple-800',
-    dot: 'bg-purple-500',
+    color: 'border-violet-500/30 bg-violet-500/5',
+    badge: 'bg-violet-500/15 text-violet-300',
+    dot: 'bg-violet-500',
     desc: 'Vendors that could not be resolved by Tier 1 or Tier 2 pass to the AI stub. Each vendor receives its own normalized form as its Vendor_Normalized key (no cross-file match). These records enter the residual pool for probabilistic and AI matching in later phases.',
   },
 }
@@ -163,51 +163,51 @@ function TierExamples({
     <div className={`border rounded-lg overflow-hidden ${meta.color}`}>
       <div className="px-4 py-3 flex items-center gap-2">
         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${meta.dot}`} />
-        <span className="text-sm font-semibold text-gray-800">{meta.label}</span>
+        <span className="text-sm font-semibold text-white/90">{meta.label}</span>
         <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${meta.badge}`}>
           {entries.filter((e) => e.match_source === tier).length} vendors
         </span>
       </div>
 
       <div className="px-4 pb-3">
-        <p className="text-xs text-gray-600 mb-3 leading-relaxed">{meta.desc}</p>
+        <p className="text-xs text-white/60 mb-3 leading-relaxed">{meta.desc}</p>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs bg-white rounded border border-gray-200 overflow-hidden">
-            <thead className="bg-gray-50">
+          <table className="w-full text-xs bg-void-elevated border border-void-border rounded-xl overflow-hidden">
+            <thead className="bg-void-elevated border-b border-void-border">
               <tr>
-                <th className="text-left py-1.5 px-3 font-medium text-gray-500">GL Original</th>
-                <th className="text-left py-1.5 px-3 font-medium text-gray-500">→ Normalized</th>
+                <th className="text-left py-1.5 px-3 font-medium text-white/40">GL Original</th>
+                <th className="text-left py-1.5 px-3 font-medium text-white/40">→ Normalized</th>
                 {showSub && (
-                  <th className="text-left py-1.5 px-3 font-medium text-gray-500">
+                  <th className="text-left py-1.5 px-3 font-medium text-white/40">
                     Matched Sub Vendor
                   </th>
                 )}
                 {tier === 'tier2' && (
-                  <th className="text-right py-1.5 px-3 font-medium text-gray-500">Similarity</th>
+                  <th className="text-right py-1.5 px-3 font-medium text-white/40">Similarity</th>
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-void-border/50">
               {examples.map((e, i) => (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="py-1.5 px-3 font-mono text-gray-700">{e.original_vendor}</td>
+                <tr key={i} className="hover:bg-void-elevated">
+                  <td className="py-1.5 px-3 font-mono text-white/75">{e.original_vendor}</td>
                   <td className="py-1.5 px-3">
-                    <span className="font-mono font-semibold text-gray-900">
+                    <span className="font-mono font-semibold text-white">
                       {e.normalized_vendor}
                     </span>
                     {e.original_vendor.toLowerCase().replace(/[^a-z0-9]/g, '') !==
                       e.normalized_vendor.toLowerCase().replace(/[^a-z0-9]/g, '') && (
-                      <span className="ml-1.5 text-[10px] text-gray-400 italic">changed</span>
+                      <span className="ml-1.5 text-[10px] text-white/35 italic">changed</span>
                     )}
                   </td>
                   {showSub && (
-                    <td className="py-1.5 px-3 font-mono text-gray-500">
-                      {e.matched_to ?? <span className="text-gray-300">—</span>}
+                    <td className="py-1.5 px-3 font-mono text-white/50">
+                      {e.matched_to ?? <span className="text-white/25">—</span>}
                     </td>
                   )}
                   {tier === 'tier2' && (
-                    <td className="py-1.5 px-3 text-right tabular-nums font-medium text-blue-600">
+                    <td className="py-1.5 px-3 text-right tabular-nums font-medium text-bdo-red-light">
                       {e.similarity_score != null
                         ? `${(e.similarity_score * 100).toFixed(1)}%`
                         : '—'}
@@ -234,10 +234,10 @@ function PreprocessingRecap({ prep }: { prep: PreprocessingResponse }) {
   return (
     <div className="mb-8 space-y-5">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">
+        <h3 className="text-sm font-semibold text-white">
           Preprocessing Complete — Vendor Normalization
         </h3>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <p className="text-xs text-white/50 mt-0.5">
           Alias version {s.alias_version} · threshold {(s.threshold_used * 100).toFixed(0)}% ·
           snapshot <span className="font-mono">{prep.snapshot.key}</span>
         </p>
@@ -266,9 +266,9 @@ function PreprocessingRecap({ prep }: { prep: PreprocessingResponse }) {
           },
         ].map(({ label, value, sub, accent }) => {
           const cls = {
-            gray: 'bg-gray-50 border-gray-200 text-gray-900',
-            green: 'bg-green-50 border-green-200 text-green-900',
-            blue: 'bg-blue-50 border-blue-200 text-blue-900',
+            gray: 'bg-void-elevated border-void-border text-white',
+            green: 'bg-emerald-500/8 border-emerald-500/20 text-white',
+            blue: 'bg-bdo-red/8 border-bdo-red/20 text-white',
           }[accent]
           return (
             <div key={label} className={`border rounded-lg p-4 ${cls}`}>
@@ -291,7 +291,7 @@ function PreprocessingRecap({ prep }: { prep: PreprocessingResponse }) {
         </p>
         <ul className="mt-3 space-y-2 text-sm text-slate-700">
           <li className="flex gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0 mt-1" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0 mt-1" />
             <span>
               <strong>Tier 1 resolved {s.tier1_count} vendors</strong> via alias dictionary lookup
               and deterministic text rules (lowercase, punctuation removal, legal-suffix stripping,
@@ -299,7 +299,7 @@ function PreprocessingRecap({ prep }: { prep: PreprocessingResponse }) {
             </span>
           </li>
           <li className="flex gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0 mt-1" />
+            <span className="w-2.5 h-2.5 rounded-full bg-bdo-red flex-shrink-0 mt-1" />
             <span>
               <strong>Tier 2 resolved {s.tier2_count} vendors</strong> via NLP token-sort fuzzy
               similarity at a {(s.threshold_used * 100).toFixed(0)}% threshold. This handles
@@ -308,7 +308,7 @@ function PreprocessingRecap({ prep }: { prep: PreprocessingResponse }) {
           </li>
           {s.tier3_count > 0 && (
             <li className="flex gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0 mt-1" />
+              <span className="w-2.5 h-2.5 rounded-full bg-violet-500 flex-shrink-0 mt-1" />
               <span>
                 <strong>{s.tier3_count} vendors</strong> could not be matched to any Subledger
                 counterpart. They are assigned a self-normalized key via the AI stub and enter the
@@ -326,7 +326,7 @@ function PreprocessingRecap({ prep }: { prep: PreprocessingResponse }) {
       </div>
 
       <div className="space-y-3">
-        <h4 className="text-sm font-semibold text-gray-900">Examples by Tier</h4>
+        <h4 className="text-sm font-semibold text-white">Examples by Tier</h4>
         <TierExamples tier="tier1" entries={entries} />
         <TierExamples tier="tier2" entries={entries} />
         <TierExamples tier="tier3" entries={entries} />
@@ -337,8 +337,8 @@ function PreprocessingRecap({ prep }: { prep: PreprocessingResponse }) {
         sheets={vendorSheets}
       />
 
-      <div className="border-t border-dashed border-gray-200 pt-6">
-        <p className="text-xs text-gray-400 mb-4">
+      <div className="border-t border-dashed border-void-border pt-6">
+        <p className="text-xs text-white/35 mb-4">
           Review the normalization above, then run deterministic matching on the cleaned records.
         </p>
       </div>
@@ -355,32 +355,32 @@ const SCENARIO_META: Record<
   1: {
     label: 'Scenario 1 — Exact Match',
     confidence: '100%',
-    color: 'border-green-300 bg-green-50',
-    dotColor: 'bg-green-500',
+    color: 'border-emerald-500/30 bg-emerald-500/5',
+    dotColor: 'bg-emerald-500',
     description:
       'All four dimensions match exactly: normalized vendor name, transaction amount (rounded to 2 d.p.), date, and entity. This is the strongest possible deterministic match — no ambiguity remains.',
   },
   2: {
     label: 'Scenario 2 — Vendor + Amount + Date Tolerance',
     confidence: '95%',
-    color: 'border-blue-300 bg-blue-50',
-    dotColor: 'bg-blue-500',
+    color: 'border-bdo-red/30 bg-bdo-red/5',
+    dotColor: 'bg-bdo-red',
     description:
       'Normalized vendor and amount match exactly, with a date tolerance of ±60 days. Handles timing differences caused by accruals, cut-off periods, and processing delays between GL posting and subledger recording.',
   },
   3: {
     label: 'Scenario 3 — Amount + Entity + Date Tolerance',
     confidence: '85%',
-    color: 'border-amber-300 bg-amber-50',
-    dotColor: 'bg-amber-500',
+    color: 'border-amber-500/30 bg-amber-500/5',
+    dotColor: 'bg-amber-400',
     description:
       'Amount and entity match exactly within a ±60-day date window, but vendor names differ. Covers cases where vendor names are recorded inconsistently but the transaction amount and business unit make the pairing unambiguous.',
   },
   4: {
     label: 'Scenario 4 — Group Sum Match (N:1 / 1:N)',
     confidence: '75%',
-    color: 'border-purple-300 bg-purple-50',
-    dotColor: 'bg-purple-500',
+    color: 'border-violet-500/30 bg-violet-500/5',
+    dotColor: 'bg-violet-500',
     description:
       'Many GL records sum to one Subledger record, or one GL record equals a group of Subledger records. Groups are bounded at 5 records and must share the same entity. Handles invoice consolidation, instalment splits, and multi-line journal entries.',
   },
@@ -436,42 +436,42 @@ function ScenarioCard({ stats, totalMatches }: { stats: ScenarioStats; totalMatc
         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1 ${meta.dotColor}`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-900">{meta.label}</span>
-            <span className="text-xs font-bold text-gray-600 flex-shrink-0">
+            <span className="text-sm font-semibold text-white">{meta.label}</span>
+            <span className="text-xs font-bold text-white/60 flex-shrink-0">
               {meta.confidence} confidence
             </span>
           </div>
-          <p className="text-xs text-gray-600 mt-1.5 leading-relaxed">{meta.description}</p>
+          <p className="text-xs text-white/60 mt-1.5 leading-relaxed">{meta.description}</p>
         </div>
       </div>
-      <div className="px-4 pb-4 flex items-center gap-6 border-t border-black/5 pt-3 flex-wrap">
+      <div className="px-4 pb-4 flex items-center gap-6 border-t border-void-border pt-3 flex-wrap">
         <div>
-          <p className="text-2xl font-bold text-gray-900 tabular-nums">{stats.count}</p>
-          <p className="text-xs text-gray-500">
+          <p className="text-2xl font-bold text-white tabular-nums">{stats.count}</p>
+          <p className="text-xs text-white/50">
             match{stats.count !== 1 ? 'es' : ''} ({pct}% of total)
           </p>
         </div>
-        <div className="h-8 w-px bg-black/10" />
+        <div className="h-8 w-px bg-void-border" />
         <div>
-          <p className="text-lg font-bold text-gray-700 tabular-nums">{stats.glRecords}</p>
-          <p className="text-xs text-gray-500">GL records</p>
+          <p className="text-lg font-bold text-white/75 tabular-nums">{stats.glRecords}</p>
+          <p className="text-xs text-white/50">GL records</p>
         </div>
         <div>
-          <p className="text-lg font-bold text-gray-700 tabular-nums">{stats.subRecords}</p>
-          <p className="text-xs text-gray-500">Sub records</p>
+          <p className="text-lg font-bold text-white/75 tabular-nums">{stats.subRecords}</p>
+          <p className="text-xs text-white/50">Sub records</p>
         </div>
-        <div className="h-8 w-px bg-black/10" />
+        <div className="h-8 w-px bg-void-border" />
         <div>
-          <p className="text-lg font-bold text-emerald-700 tabular-nums">
+          <p className="text-lg font-bold text-emerald-400 tabular-nums">
             {fmtUsd(stats.totalGlAmount)}
           </p>
-          <p className="text-xs text-gray-500">GL amount</p>
+          <p className="text-xs text-white/50">GL amount</p>
         </div>
         <div>
-          <p className="text-lg font-bold text-emerald-700 tabular-nums">
+          <p className="text-lg font-bold text-emerald-400 tabular-nums">
             {fmtUsd(stats.totalSubAmount)}
           </p>
-          <p className="text-xs text-gray-500">Sub amount</p>
+          <p className="text-xs text-white/50">Sub amount</p>
         </div>
       </div>
     </div>
@@ -503,64 +503,64 @@ function BansSection({ det }: { det: DeterministicResponse }) {
 
   return (
     <div>
-      <h4 className="text-sm font-semibold text-gray-900 mb-1">BANS Analysis</h4>
-      <p className="text-xs text-gray-500 mb-4">
+      <h4 className="text-sm font-semibold text-white mb-1">BANS Analysis</h4>
+      <p className="text-xs text-white/50 mb-4">
         Big groups · Amount anomalies · Notable residuals · Scenario sensitivity
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
         {/* B — Big Groups */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             B — Big Groups
           </p>
-          <p className="text-2xl font-bold text-gray-900 tabular-nums">{multiGroups.length}</p>
-          <p className="text-xs text-gray-500 mb-3">N:1 / 1:N multi-record matches</p>
+          <p className="text-2xl font-bold text-white tabular-nums">{multiGroups.length}</p>
+          <p className="text-xs text-white/50 mb-3">N:1 / 1:N multi-record matches</p>
           {multiGroups.length > 0 ? (
             <>
               <table className="w-full text-[11px]">
                 <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left py-1 pr-2 font-medium text-gray-500">Match ID</th>
-                    <th className="text-center py-1 px-2 font-medium text-gray-500">GL</th>
-                    <th className="text-center py-1 px-2 font-medium text-gray-500">Sub</th>
-                    <th className="text-left py-1 pl-2 font-medium text-gray-500">Type</th>
+                  <tr className="border-b border-void-border/50">
+                    <th className="text-left py-1 pr-2 font-medium text-white/50">Match ID</th>
+                    <th className="text-center py-1 px-2 font-medium text-white/50">GL</th>
+                    <th className="text-center py-1 px-2 font-medium text-white/50">Sub</th>
+                    <th className="text-left py-1 pl-2 font-medium text-white/50">Type</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-void-border/30">
                   {multiGroups.slice(0, 6).map((m) => (
                     <tr key={m.match_id}>
-                      <td className="py-1 pr-2 font-mono text-gray-700 truncate max-w-[120px]">
+                      <td className="py-1 pr-2 font-mono text-white/75 truncate max-w-[120px]">
                         {m.match_id}
                       </td>
-                      <td className="py-1 px-2 text-center font-bold text-gray-900">
+                      <td className="py-1 px-2 text-center font-bold text-white">
                         {m.record_ids_A.length}
                       </td>
-                      <td className="py-1 px-2 text-center font-bold text-gray-900">
+                      <td className="py-1 px-2 text-center font-bold text-white">
                         {m.record_ids_B.length}
                       </td>
-                      <td className="py-1 pl-2 text-gray-600">{m.grouping_type}</td>
+                      <td className="py-1 pl-2 text-white/60">{m.grouping_type}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {multiGroups.length > 6 && (
-                <p className="text-[10px] text-gray-400 mt-1.5">
+                <p className="text-[10px] text-white/35 mt-1.5">
                   +{multiGroups.length - 6} more — see Matched Records grid below
                 </p>
               )}
             </>
           ) : (
-            <p className="text-xs text-green-600">
+            <p className="text-xs text-emerald-400">
               All matches are 1:1 — no complex groupings detected.
             </p>
           )}
         </div>
 
         {/* A — Amount Variance */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             A — Amount Variance
           </p>
           <div className="space-y-2 text-xs">
@@ -569,25 +569,25 @@ function BansSection({ det }: { det: DeterministicResponse }) {
               { label: 'Matched Sub', value: fmtUsd(s.total_matched_sub_amount) },
             ].map(({ label, value }) => (
               <div key={label} className="flex justify-between">
-                <span className="text-gray-500">{label}</span>
+                <span className="text-white/50">{label}</span>
                 <span className="font-medium tabular-nums">{value}</span>
               </div>
             ))}
-            <div className="border-t border-gray-100 pt-2 flex justify-between">
-              <span className="text-gray-500">Variance</span>
+            <div className="border-t border-void-border/50 pt-2 flex justify-between">
+              <span className="text-white/50">Variance</span>
               <span
                 className={`font-bold tabular-nums ${
-                  variance < 0.01 ? 'text-green-600' : variancePct < 0.1 ? 'text-amber-600' : 'text-red-600'
+                  variance < 0.01 ? 'text-emerald-400' : variancePct < 0.1 ? 'text-amber-300' : 'text-bdo-red-light'
                 }`}
               >
                 {fmtUsd(variance)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Variance %</span>
+              <span className="text-white/50">Variance %</span>
               <span
                 className={`font-medium ${
-                  variance < 0.01 ? 'text-green-600' : variancePct < 0.1 ? 'text-amber-600' : 'text-red-600'
+                  variance < 0.01 ? 'text-emerald-400' : variancePct < 0.1 ? 'text-amber-300' : 'text-bdo-red-light'
                 }`}
               >
                 {variancePct.toFixed(3)}%
@@ -597,10 +597,10 @@ function BansSection({ det }: { det: DeterministicResponse }) {
           <div
             className={`mt-3 p-2 rounded text-[11px] ${
               variance < 0.01
-                ? 'bg-green-50 text-green-700'
+                ? 'bg-emerald-500/10 text-emerald-300'
                 : variancePct < 0.1
-                  ? 'bg-amber-50 text-amber-700'
-                  : 'bg-red-50 text-red-700'
+                  ? 'bg-amber-500/10 text-amber-300'
+                  : 'bg-bdo-red/10 text-bdo-red-light'
             }`}
           >
             {variance < 0.01
@@ -612,8 +612,8 @@ function BansSection({ det }: { det: DeterministicResponse }) {
         </div>
 
         {/* N — Notable Residuals */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             N — Notable Residuals
           </p>
           <div className="space-y-4">
@@ -633,19 +633,19 @@ function BansSection({ det }: { det: DeterministicResponse }) {
             ].map(({ label, count, total, pct }) => (
               <div key={label}>
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-gray-500">{label}</span>
+                  <span className="text-white/50">{label}</span>
                   <span
                     className={`font-semibold ${
-                      pct < 10 ? 'text-green-700' : pct < 30 ? 'text-amber-600' : 'text-red-600'
+                      pct < 10 ? 'text-emerald-400' : pct < 30 ? 'text-amber-300' : 'text-bdo-red-light'
                     }`}
                   >
                     {count.toLocaleString()} / {total.toLocaleString()} ({pct.toFixed(1)}%)
                   </span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-2">
+                <div className="w-full bg-void-border rounded-full h-2">
                   <div
                     className={`h-2 rounded-full ${
-                      pct < 10 ? 'bg-green-400' : pct < 30 ? 'bg-amber-400' : 'bg-red-400'
+                      pct < 10 ? 'bg-emerald-400' : pct < 30 ? 'bg-amber-400' : 'bg-bdo-red/80'
                     }`}
                     style={{ width: `${Math.min(pct, 100)}%` }}
                   />
@@ -653,14 +653,14 @@ function BansSection({ det }: { det: DeterministicResponse }) {
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-gray-400 mt-3">
+          <p className="text-[11px] text-white/35 mt-3">
             Residual records advance to the probabilistic matching pool.
           </p>
         </div>
 
         {/* S — Scenario Sensitivity */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        <div className="border border-void-border rounded-lg p-4">
+          <p className="text-[11px] font-semibold text-white/40 uppercase tracking-wide mb-3">
             S — Scenario Sensitivity
           </p>
           <div className="space-y-2">
@@ -673,10 +673,10 @@ function BansSection({ det }: { det: DeterministicResponse }) {
               const count = s.scenario_counts[key] ?? 0
               return (
                 <div key={key} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-gray-600 flex-1 truncate">{label}</span>
+                  <span className="text-white/60 flex-1 truncate">{label}</span>
                   <span
                     className={`font-bold tabular-nums flex-shrink-0 ${
-                      risk && count > 0 ? (key === '4' ? 'text-red-600' : 'text-amber-600') : 'text-gray-900'
+                      risk && count > 0 ? (key === '4' ? 'text-bdo-red-light' : 'text-amber-300') : 'text-white'
                     }`}
                   >
                     {count}
@@ -686,14 +686,14 @@ function BansSection({ det }: { det: DeterministicResponse }) {
             })}
           </div>
           {(sc3 > 0 || sc4 > 0) ? (
-            <div className="mt-3 p-2 bg-amber-50 rounded text-[11px] text-amber-700">
+            <div className="mt-3 p-2 bg-amber-500/10 rounded text-[11px] text-amber-300">
               {sc4 > 0 &&
                 `${sc4} group-sum match${sc4 !== 1 ? 'es' : ''} (Sc. 4) use aggregation — verify groupings. `}
               {sc3 > 0 &&
                 `${sc3} vendor-mismatch match${sc3 !== 1 ? 'es' : ''} (Sc. 3) skipped name check — review.`}
             </div>
           ) : (
-            <div className="mt-3 p-2 bg-green-50 rounded text-[11px] text-green-700">
+            <div className="mt-3 p-2 bg-emerald-500/10 rounded text-[11px] text-emerald-300">
               All matches used high-confidence scenarios (1 or 2).
             </div>
           )}
@@ -890,27 +890,27 @@ function DataFrameGrid({
   rows,
   label,
   badge,
-  badgeColor = 'bg-blue-100 text-blue-700',
+  badgeColor = 'bg-bdo-red/15 text-bdo-red-light',
   height = 400,
 }: DataFrameGridProps) {
   const colDefs = useMemo(() => buildDfColDefs(rows), [rows])
   if (rows.length === 0) {
     return (
-      <div className="border border-gray-200 rounded-lg p-5 text-center bg-gray-50">
-        <p className="text-sm text-gray-500">{label} — 0 rows</p>
+      <div className="border border-void-border rounded-xl p-5 text-center bg-void-elevated">
+        <p className="text-sm text-white/50">{label} — 0 rows</p>
       </div>
     )
   }
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-sm font-medium text-gray-700">{label}</span>
+        <span className="text-sm font-medium text-white/70">{label}</span>
         {badge && (
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badgeColor}`}>
             {badge}
           </span>
         )}
-        <span className="text-xs text-gray-400 ml-auto">Sort · filter · resize any column</span>
+        <span className="text-xs text-white/35 ml-auto">Sort · filter · resize any column</span>
       </div>
       <div className="ag-theme-alpine w-full" style={{ height }}>
         <AgGridReact
@@ -935,8 +935,8 @@ type DataFrameTab = 'gl' | 'sub' | 'residual_gl' | 'residual_sub'
 const TAB_CONFIG: { id: DataFrameTab; label: string; badgeColor: string }[] = [
   { id: 'gl',          label: 'General Ledger (input)',   badgeColor: 'bg-indigo-100 text-indigo-700' },
   { id: 'sub',         label: 'Subledger (input)',        badgeColor: 'bg-violet-100 text-violet-700' },
-  { id: 'residual_gl', label: 'GL Residual (unmatched)',  badgeColor: 'bg-amber-100 text-amber-700' },
-  { id: 'residual_sub', label: 'Sub Residual (unmatched)', badgeColor: 'bg-amber-100 text-amber-700' },
+  { id: 'residual_gl', label: 'GL Residual (unmatched)',  badgeColor: 'bg-amber-500/15 text-amber-300' },
+  { id: 'residual_sub', label: 'Sub Residual (unmatched)', badgeColor: 'bg-amber-500/15 text-amber-300' },
 ]
 
 function DataFrameTabs({ det }: { det: DeterministicResponse }) {
@@ -954,7 +954,7 @@ function DataFrameTabs({ det }: { det: DeterministicResponse }) {
 
   return (
     <div>
-      <div className="flex gap-1 border-b border-gray-200 mb-4 overflow-x-auto">
+      <div className="flex gap-1 border-b border-void-border mb-4 overflow-x-auto">
         {TAB_CONFIG.map((tab) => {
           const count = dataMap[tab.id].length
           const isActive = tab.id === activeTab
@@ -964,14 +964,14 @@ function DataFrameTabs({ det }: { det: DeterministicResponse }) {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-colors ${
                 isActive
-                  ? 'border-blue-500 text-blue-700 font-medium'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-bdo-red text-bdo-red-light font-medium'
+                  : 'border-transparent text-white/40 hover:text-white/70 hover:border-void-border'
               }`}
             >
               {tab.label}
               <span
                 className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                  isActive ? tab.badgeColor : 'bg-gray-100 text-gray-500'
+                  isActive ? tab.badgeColor : 'bg-void-border text-white/50'
                 }`}
               >
                 {count}
@@ -1009,8 +1009,8 @@ function DeterministicResult({ data }: { data: DeterministicResponse }) {
   return (
     <div className="mt-6 space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">Deterministic Matching — Results</h3>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <h3 className="text-sm font-semibold text-white">Deterministic Matching — Results</h3>
+        <p className="text-xs text-white/50 mt-0.5">
           {s.match_count} match{s.match_count !== 1 ? 'es' : ''} across{' '}
           {scenarioStats.length} active scenario{scenarioStats.length !== 1 ? 's' : ''}
         </p>
@@ -1039,10 +1039,10 @@ function DeterministicResult({ data }: { data: DeterministicResponse }) {
           },
         ].map(({ label, value, sub, accent }) => {
           const cls = {
-            blue: 'bg-blue-50 border-blue-200 text-blue-900',
-            green: 'bg-green-50 border-green-200 text-green-900',
-            amber: 'bg-amber-50 border-amber-200 text-amber-900',
-            gray: 'bg-gray-50 border-gray-200 text-gray-900',
+            blue: 'bg-bdo-red/8 border-bdo-red/20 text-white',
+            green: 'bg-emerald-500/8 border-emerald-500/20 text-white',
+            amber: 'bg-amber-500/8 border-amber-500/20 text-white',
+            gray: 'bg-void-elevated border-void-border text-white',
           }[accent]
           return (
             <div key={label} className={`border rounded-lg p-4 ${cls}`}>
@@ -1056,29 +1056,29 @@ function DeterministicResult({ data }: { data: DeterministicResponse }) {
 
       {/* Dollar KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="border border-emerald-200 bg-emerald-50 rounded-lg p-4">
-          <p className="text-xs font-medium text-emerald-700 uppercase tracking-wide">
+        <div className="border border-emerald-500/20 bg-emerald-500/8 rounded-lg p-4">
+          <p className="text-xs font-medium text-emerald-400 uppercase tracking-wide">
             Total Matched GL Amount
           </p>
-          <p className="text-2xl font-bold text-emerald-900 tabular-nums mt-1">
+          <p className="text-2xl font-bold text-emerald-300 tabular-nums mt-1">
             {fmtUsd(s.total_matched_gl_amount)}
           </p>
-          <p className="text-xs text-emerald-600 mt-0.5">across all {s.match_count} matches</p>
+          <p className="text-xs text-emerald-400 mt-0.5">across all {s.match_count} matches</p>
         </div>
-        <div className="border border-emerald-200 bg-emerald-50 rounded-lg p-4">
-          <p className="text-xs font-medium text-emerald-700 uppercase tracking-wide">
+        <div className="border border-emerald-500/20 bg-emerald-500/8 rounded-lg p-4">
+          <p className="text-xs font-medium text-emerald-400 uppercase tracking-wide">
             Total Matched Sub Amount
           </p>
-          <p className="text-2xl font-bold text-emerald-900 tabular-nums mt-1">
+          <p className="text-2xl font-bold text-emerald-300 tabular-nums mt-1">
             {fmtUsd(s.total_matched_sub_amount)}
           </p>
-          <p className="text-xs text-emerald-600 mt-0.5">
+          <p className="text-xs text-emerald-400 mt-0.5">
             variance{' '}
             <span
               className={
                 Math.abs(s.total_matched_gl_amount - s.total_matched_sub_amount) < 0.01
-                  ? 'text-emerald-700 font-medium'
-                  : 'text-amber-600 font-medium'
+                  ? 'text-emerald-400 font-medium'
+                  : 'text-amber-300 font-medium'
               }
             >
               {fmtUsd(Math.abs(s.total_matched_gl_amount - s.total_matched_sub_amount))}
@@ -1092,13 +1092,13 @@ function DeterministicResult({ data }: { data: DeterministicResponse }) {
 
       {/* Per-scenario cards */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-900 mb-3">Breakdown by Method</h4>
+        <h4 className="text-sm font-semibold text-white mb-3">Breakdown by Method</h4>
         <div className="space-y-3">
           {scenarioStats.map((stats) => (
             <ScenarioCard key={stats.id} stats={stats} totalMatches={s.match_count} />
           ))}
           {scenarioStats.length === 0 && (
-            <p className="text-sm text-gray-400 italic">No matches were produced.</p>
+            <p className="text-sm text-white/35 italic">No matches were produced.</p>
           )}
         </div>
       </div>
@@ -1106,11 +1106,11 @@ function DeterministicResult({ data }: { data: DeterministicResponse }) {
       {/* Matched records — AG Grid */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-semibold text-gray-900">
+          <h4 className="text-sm font-semibold text-white">
             Matched Records{' '}
-            <span className="font-normal text-gray-400 text-xs">({data.matches.length} rows)</span>
+            <span className="font-normal text-white/35 text-xs">({data.matches.length} rows)</span>
           </h4>
-          <p className="text-xs text-gray-400">Sort · filter · resize any column</p>
+          <p className="text-xs text-white/35">Sort · filter · resize any column</p>
         </div>
         <MatchedRecordsGrid
           matches={data.matches}
@@ -1121,8 +1121,8 @@ function DeterministicResult({ data }: { data: DeterministicResponse }) {
 
       {/* Source & residual DataFrames */}
       <div>
-        <h4 className="text-sm font-semibold text-gray-900 mb-1">Source & Residual Data</h4>
-        <p className="text-xs text-gray-500 mb-4">
+        <h4 className="text-sm font-semibold text-white mb-1">Source & Residual Data</h4>
+        <p className="text-xs text-white/50 mb-4">
           Inspect the full GL and Subledger inputs alongside the unmatched residual rows that will
           flow into the probabilistic matching pool.
         </p>
@@ -1134,7 +1134,7 @@ function DeterministicResult({ data }: { data: DeterministicResponse }) {
         sheets={detSheets}
       />
 
-      <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm text-green-800">
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-sm text-emerald-300">
         Deterministic matching complete. State: <strong>{data.state}</strong>. Proceed to
         Deterministic Review to confirm and inspect full data tables.
       </div>
@@ -1174,18 +1174,18 @@ export default function DeterministicStep({ sessionId, onSuccess }: Props) {
   })
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="glass-card p-6">
       {prep ? (
         <PreprocessingRecap prep={prep} />
       ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-500 mb-6">
+        <div className="bg-void-elevated border border-void-border rounded-xl p-3 text-sm text-white/50 mb-6">
           Preprocessing summary not available (run the Preprocess step in this browser session to
           see it here).
         </div>
       )}
 
-      <h2 className="text-base font-semibold text-gray-900 mb-1">Deterministic Matching</h2>
-      <p className="text-sm text-gray-500 mb-5">
+      <h2 className="text-base font-semibold text-white mb-1">Deterministic Matching</h2>
+      <p className="text-sm text-white/50 mb-5">
         Run rule-based matching across 4 scenarios using the normalized vendor keys above.
         Confidence scores are assigned per scenario (100% → 95% → 85% → 75%). All results are
         authoritative and auto-confirmed.
@@ -1200,7 +1200,7 @@ export default function DeterministicStep({ sessionId, onSuccess }: Props) {
       <button
         onClick={() => mutation.mutate()}
         disabled={mutation.isPending}
-        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
+        className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {mutation.isPending ? 'Running…' : 'Run Deterministic Matching'}
       </button>

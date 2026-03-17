@@ -32,21 +32,21 @@ function ExportFileRow({ file, sessionId }: { file: ExportFile; sessionId: strin
   const downloadUrl = getExportFileDownloadUrl(sessionId, file.filename)
 
   return (
-    <div className="border border-gray-200 rounded-md p-4">
+    <div className="bg-void-elevated border border-void-border rounded-xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-900">{file.filename}</span>
+            <span className="text-sm font-medium text-white">{file.filename}</span>
             <span
               className={[
                 'text-xs px-1.5 py-0.5 rounded font-medium',
-                isPdf ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600',
+                isPdf ? 'bg-bdo-red/15 text-bdo-red-light' : 'bg-emerald-500/15 text-emerald-400',
               ].join(' ')}
             >
               {isPdf ? 'PDF' : 'CSV'}
             </span>
           </div>
-          <div className="flex gap-4 mt-1.5 text-xs text-gray-400">
+          <div className="flex gap-4 mt-1.5 text-xs text-white/35">
             <span>{formatBytes(file.size_bytes)}</span>
             <span className="font-mono truncate max-w-[200px]" title={file.sha256}>
               SHA256: {file.sha256.slice(0, 16)}…
@@ -56,7 +56,7 @@ function ExportFileRow({ file, sessionId }: { file: ExportFile; sessionId: strin
         <a
           href={downloadUrl}
           download={file.filename}
-          className="flex-shrink-0 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md transition-colors no-underline"
+          className="flex-shrink-0 btn-primary text-xs px-3 py-1.5 no-underline"
         >
           ↓ Download
         </a>
@@ -101,11 +101,11 @@ function ExportResult({ data, sessionId }: { data: ExportResponse; sessionId: st
   return (
     <div className="mt-6 space-y-4">
       {/* Summary banner */}
-      <div className="bg-green-50 border border-green-200 rounded-md p-4">
-        <p className="text-sm font-medium text-green-800 mb-2">
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+        <p className="text-sm font-medium text-emerald-300 mb-2">
           Export complete — session finalized
         </p>
-        <div className="text-sm text-green-700 space-y-1">
+        <div className="text-sm text-emerald-400 space-y-1">
           <p>
             <strong>Exported at:</strong> {new Date(data.exported_at).toLocaleString()}
           </p>
@@ -120,14 +120,14 @@ function ExportResult({ data, sessionId }: { data: ExportResponse; sessionId: st
 
       {/* Per-file list */}
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-3">
+        <h4 className="text-sm font-medium text-white/70 mb-3">
           Exported Files ({data.files.length})
         </h4>
         <div className="space-y-2">
           {data.files.map((f) => (
             <div key={f.filename}>
               {FILE_DESCRIPTIONS[f.filename] && (
-                <p className="text-xs text-gray-400 mb-1 ml-1">{FILE_DESCRIPTIONS[f.filename]}</p>
+                <p className="text-xs text-white/35 mb-1 ml-1">{FILE_DESCRIPTIONS[f.filename]}</p>
               )}
               <ExportFileRow file={f} sessionId={sessionId} />
             </div>
@@ -135,7 +135,7 @@ function ExportResult({ data, sessionId }: { data: ExportResponse; sessionId: st
         </div>
       </div>
 
-      <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-500">
+      <div className="bg-void-elevated border border-void-border rounded-xl p-3 text-xs text-white/50">
         <strong>Export directory (server):</strong>{' '}
         <span className="font-mono">{data.export_dir}</span>
       </div>
@@ -192,9 +192,9 @@ export default function ExportStep({ sessionId, state, onSuccess }: Props) {
   const displayData = cached ?? mutation.data
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
-      <h2 className="text-base font-semibold text-gray-900 mb-1">Export & Finalize</h2>
-      <p className="text-sm text-gray-500 mb-4">
+    <div className="glass-card p-6">
+      <h2 className="text-base font-semibold text-white mb-1">Export & Finalize</h2>
+      <p className="text-sm text-white/50 mb-4">
         Generate all output files and finalize the session. This advances the session to the
         terminal <strong>finalized</strong> state — no further transitions are possible.
       </p>
@@ -202,7 +202,7 @@ export default function ExportStep({ sessionId, state, onSuccess }: Props) {
       {/* Export button — only shown when not yet finalized */}
       {!isFinalized && !displayData && (
         <>
-          <div className="bg-amber-50 border border-amber-100 rounded-md p-3 text-sm text-amber-800 mb-5">
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-sm text-amber-300 mb-5">
             Generates: final_matches.csv, residual_unmatched_gl.csv, residual_unmatched_sub.csv,
             rejected_matches.csv, audit_log.csv, reconciliation_report.pdf
           </div>
@@ -216,7 +216,7 @@ export default function ExportStep({ sessionId, state, onSuccess }: Props) {
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
-            className="bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white text-sm font-medium px-5 py-2 rounded-md transition-colors"
+            className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {mutation.isPending ? 'Exporting…' : 'Export & Finalize'}
           </button>
@@ -225,7 +225,7 @@ export default function ExportStep({ sessionId, state, onSuccess }: Props) {
 
       {/* Loading state when fetching manifest for already-finalized session */}
       {isFinalized && !displayData && (
-        <div className="mt-2 text-sm text-gray-500">
+        <div className="mt-2 text-sm text-white/50">
           {manifestQuery.isLoading && 'Loading export manifest…'}
           {manifestQuery.error && (
             <ErrorDisplay

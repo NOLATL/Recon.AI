@@ -24,6 +24,10 @@ import {
 } from '@/api/endpoints'
 import { cn } from '@/lib/utils'
 
+// White card styling (matches Load & Clean Data page)
+const whiteCardClass =
+  'bg-white border-gray-200 shadow-[0_2px_8px_rgba(0,0,0,0.08)] rounded-2xl [--foreground:#1a1a1a] [--muted-foreground:#1a1a1a] [--card-foreground:#1a1a1a]'
+
 type PhaseStatus = 'queued' | 'running' | 'complete'
 
 const PHASES = [
@@ -57,7 +61,7 @@ function PhaseStatusIcon({ status }: { status: PhaseStatus }) {
 
 function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
       <div
         className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
         style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
@@ -203,11 +207,15 @@ export function Matching() {
                   )
                 }
               })
-              setRecordCounts([
-                s.deterministic_match_count ?? 0,
-                s.probabilistic_match_count ?? 0,
-                s.ai_match_count ?? 0,
-              ])
+              // Count GL rows per layer (record_ids_A), not match pairs,
+              // so N:1 probabilistic matches are counted correctly.
+              const glCount = { deterministic: 0, probabilistic: 0, ai: 0 }
+              ;(cons.final_matches ?? []).forEach((m: Record<string, unknown>) => {
+                const layer = String(m.layer ?? '')
+                const glIds = (m.record_ids_A as string[]) ?? []
+                if (layer in glCount) glCount[layer as keyof typeof glCount] += glIds.length
+              })
+              setRecordCounts([glCount.deterministic, glCount.probabilistic, glCount.ai])
               setAmountsByPhase([
                 amtByLayer.deterministic,
                 amtByLayer.probabilistic,
@@ -299,13 +307,13 @@ export function Matching() {
   if (!sessionId) {
     return (
       <PageLayout title="Matching" description="Reconciliation pipeline: deterministic, probabilistic, and AI matching.">
-        <Card>
+        <Card className={whiteCardClass}>
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              No session. Upload files and run matching from the Load Files page.
+            <p className="text-sm text-[#1a1a1a]">
+              No session. Upload files and run matching from the Load & Clean Data page.
             </p>
             <Button variant="outline" className="mt-4" onClick={() => navigate('/load-files')}>
-              Go to Load Files
+              Go to Load & Clean Data
             </Button>
           </CardContent>
         </Card>
@@ -316,11 +324,11 @@ export function Matching() {
   if (error) {
     return (
       <PageLayout title="Matching" description="Reconciliation pipeline: deterministic, probabilistic, and AI matching.">
-        <Card>
+        <Card className={whiteCardClass}>
           <CardContent className="pt-6">
             <p className="text-sm text-destructive">{error}</p>
             <Button variant="outline" className="mt-4" onClick={() => navigate('/load-files')}>
-              Back to Load Files
+              Back to Load & Clean Data
             </Button>
           </CardContent>
         </Card>
@@ -330,11 +338,11 @@ export function Matching() {
 
   return (
     <PageLayout title="Matching" description="Reconciliation pipeline: deterministic, probabilistic, and AI matching.">
-      <Card>
+      <Card className={whiteCardClass}>
         <CardHeader>
-          <CardTitle>Pipeline Status</CardTitle>
-          <CardDescription>
-            Reconciliation runs through deterministic, probabilistic, and AI matching. Current state: {currentState || '—'}
+          <CardTitle className="text-[#1a1a1a]">Pipeline Status</CardTitle>
+          <CardDescription className="text-[#1a1a1a]">
+            Reconciliation runs through deterministic, probabilistic, and AI matching.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -342,7 +350,7 @@ export function Matching() {
             <div
               key={phase.id}
               className={cn(
-                'flex flex-col gap-2 rounded-lg border p-4',
+                'flex flex-col gap-2 rounded-lg border border-gray-200 p-4',
                 phaseStatuses[i] === 'running' && 'border-primary/30 bg-primary/5'
               )}
             >
@@ -363,7 +371,7 @@ export function Matching() {
                       : phaseStatuses[i] === 'running'
                         ? `${recordCounts[i].toLocaleString()} processed`
                         : '—'}{' '}
-                    records
+                    GL rows
                   </span>
                 </div>
               </div>
@@ -375,10 +383,10 @@ export function Matching() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={whiteCardClass}>
         <CardHeader>
-          <CardTitle>Run Status</CardTitle>
-          <CardDescription>Current run progress and summary.</CardDescription>
+          <CardTitle className="text-[#1a1a1a]">Run Status</CardTitle>
+          <CardDescription className="text-[#1a1a1a]">Current run progress and summary.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -389,7 +397,7 @@ export function Matching() {
               </p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Total records processed</p>
+              <p className="text-sm text-muted-foreground">Total GL rows matched</p>
               <p className="text-lg font-semibold tabular-nums text-foreground">
                 {totalProcessed.toLocaleString()}
               </p>
@@ -408,7 +416,7 @@ export function Matching() {
 
       <div className="flex flex-wrap items-center gap-4">
         {!allComplete && (
-          <Button variant="outline" onClick={handleCancel}>
+          <Button variant="default" onClick={handleCancel}>
             Cancel Run
           </Button>
         )}

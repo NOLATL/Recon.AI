@@ -237,6 +237,38 @@ def _histogram_buckets_categorical(series: pd.Series, top_n: int = 8) -> List[Di
     return [{"label": str(label), "count": int(cnt)} for label, cnt in vc.items()]
 
 
+def _histogram_buckets_date(series: pd.Series, top_n: int = 8) -> List[Dict[str, Any]]:
+    """
+    Return histogram buckets for a date/datetime series, binned by month.
+    Returns top-N months by count, labeled as "Jan 2024", "Feb 2024", etc.
+    """
+    try:
+        dt_series = pd.to_datetime(series, errors="coerce").dropna()
+    except Exception:
+        return []
+
+    if dt_series.empty:
+        return []
+
+    # Group by year-month and count (value_counts sorts by count descending)
+    period_series = dt_series.dt.to_period("M")
+    month_counts = period_series.value_counts()
+    if month_counts.empty:
+        return []
+
+    # Take top-N months by count, format as "Jan 2024"
+    top = month_counts.head(top_n)
+    result = []
+    for period, cnt in top.items():
+        try:
+            # Use to_timestamp for reliable formatting across pandas versions
+            label = period.to_timestamp().strftime("%b %Y")
+        except Exception:
+            label = str(period)
+        result.append({"label": label, "count": int(cnt)})
+    return result
+
+
 def _column_profiles(
     df: pd.DataFrame,
     file_key: str,
@@ -284,8 +316,9 @@ def _column_profiles(
                 "sum":          nd.sum    if nd else None,
                 "histogram":    hist,
             }
-        elif col in date_cols:
-            dr = date_ranges.get(col)
+        elif col in date_cols or pd.api.types.is_datetime64_any_dtype(series.dtype):
+            dr = date_ranges.get(col) or _date_range(series)
+            hist = _histogram_buckets_date(series)
             profiles[col] = {
                 "data_type":    "date",
                 "unique_count": unique_ct,
@@ -293,7 +326,7 @@ def _column_profiles(
                 "null_pct":     null_pct,
                 "min":          dr.min if dr else None,
                 "max":          dr.max if dr else None,
-                "histogram":    [],
+                "histogram":    hist,
             }
         else:
             # String / categorical column

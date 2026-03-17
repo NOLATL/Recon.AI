@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
@@ -33,8 +32,13 @@ import {
   getConsolidation,
   runConsolidate,
   saveManualOverrides,
+  saveManualRejected,
   type FinalConsolidationResponse,
 } from '@/api/endpoints'
+
+// White card styling (matches Matched Analysis page)
+const whiteCardClass =
+  'bg-white border-gray-200 shadow-[0_2px_8px_rgba(0,0,0,0.08)] rounded-2xl [--foreground:#1a1a1a] [--muted-foreground:#1a1a1a] [--card-foreground:#1a1a1a]'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -88,7 +92,7 @@ function EditableCell({
       placeholder={placeholder}
       onChange={e => setLocal(e.target.value)}
       onBlur={() => onSave(rowId, local)}
-      className="w-full min-w-[90px] rounded border border-transparent bg-transparent px-1 py-0.5 text-sm hover:bg-muted/50 focus:border-input focus:bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+      className="w-full min-w-[90px] rounded border border-transparent bg-white px-1 py-0.5 text-sm text-black hover:bg-white focus:border-input focus:bg-white focus:outline-none focus:ring-1 focus:ring-ring"
     />
   )
 }
@@ -214,12 +218,50 @@ export function DetailedAnalysisExport() {
     let cancelled = false
     setLoading(true)
     setLoadError(null)
-    if (!sessionId) { setLoadError('No session. Start from Load Files.'); setLoading(false); return }
+    if (!sessionId) { setLoadError('No session. Start from Load & Clean Data.'); setLoading(false); return }
 
     const load = async (res: FinalConsolidationResponse) => {
       if (cancelled) return
-      setGlRows(parseGlRows(res))
-      setSubRows(parseSubRows(res))
+      const baseGl  = parseGlRows(res)
+      const baseSub = parseSubRows(res)
+
+      // Merge in any matches the user manually rejected on the Matched Analysis page
+      try {
+        const raw = localStorage.getItem(`recon-${sessionId}-manual-unmatched`)
+        if (raw) {
+          const manualUnmatched: { gl_records: Record<string, unknown>[]; sl_records: Record<string, unknown>[] }[] = JSON.parse(raw)
+          const existingGlIds  = new Set(baseGl.map(r => r.id))
+          const existingSubIds = new Set(baseSub.map(r => r.id))
+          const extraGl: GlUnmatchedRow[] = manualUnmatched.flatMap(m =>
+            m.gl_records
+              .map(r => ({
+                id:     String(r.gl_id ?? ''),
+                entity: String(r.entity ?? ''),
+                vendor: String(r.vendor_name ?? r.Vendor_Normalized ?? ''),
+                date:   String(r.transaction_date ?? r.date ?? ''),
+                amount: Number(r.amount ?? 0),
+              }))
+              .filter(r => r.id && !existingGlIds.has(r.id))
+          )
+          const extraSub: SubUnmatchedRow[] = manualUnmatched.flatMap(m =>
+            m.sl_records
+              .map(r => ({
+                id:     String(r.subledger_id ?? ''),
+                entity: String(r.entity ?? ''),
+                vendor: String(r.vendor_name ?? r.Vendor_Normalized ?? ''),
+                date:   String(r.transaction_date ?? r.date ?? ''),
+                amount: Number(r.amount ?? 0),
+              }))
+              .filter(r => r.id && !existingSubIds.has(r.id))
+          )
+          setGlRows([...baseGl, ...extraGl])
+          setSubRows([...baseSub, ...extraSub])
+          return
+        }
+      } catch { /* malformed — fall through */ }
+
+      setGlRows(baseGl)
+      setSubRows(baseSub)
     }
 
     getConsolidation(sessionId)
@@ -269,7 +311,24 @@ export function DetailedAnalysisExport() {
     setFinalizing(true)
     setFinalizeError(null)
     try {
-      // Convert localStorage overrides to {gl_id: [sub_id, ...]} — GL perspective only.
+      // 1. Send matches the user manually rejected on the Matched Analysis page.
+      //    These go into rejected_matches.csv and residual CSVs at export time.
+      try {
+        const rawRejected = localStorage.getItem(`recon-${sessionId}-manual-unmatched`)
+        if (rawRejected) {
+          const parsed: { id: string; gl_records: Record<string, unknown>[]; sl_records: Record<string, unknown>[] }[] = JSON.parse(rawRejected)
+          const payload = parsed.map(m => ({
+            match_id:     m.id,
+            record_ids_A: m.gl_records.map(r => String(r.gl_id ?? '')).filter(Boolean),
+            record_ids_B: m.sl_records.map(r => String(r.subledger_id ?? '')).filter(Boolean),
+          })).filter(m => m.record_ids_A.length > 0 || m.record_ids_B.length > 0)
+          if (payload.length > 0) await saveManualRejected(sessionId, payload)
+        }
+      } catch { /* non-fatal — continue to overrides */ }
+
+      // 2. Convert localStorage overrides to {gl_id: [sub_id, ...]} — GL perspective only.
+      //    If a manually-rejected GL row was subsequently linked here, it moves to
+      //    final_results.csv and is excluded from residual/rejected outputs.
       const glOverrides: Record<string, string[]> = {}
       for (const glRow of glRows) {
         const linked = splitIds(overrides[glRow.id] ?? '')
@@ -392,9 +451,7 @@ export function DetailedAnalysisExport() {
     state: { sorting: glSorting },
     onSortingChange: setGlSorting,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    initialState: { pagination: { pageSize: 10 } },
   })
 
   const subTable = useReactTable({
@@ -403,9 +460,7 @@ export function DetailedAnalysisExport() {
     state: { sorting: subSorting },
     onSortingChange: setSubSorting,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    initialState: { pagination: { pageSize: 10 } },
   })
 
   // ── Shared table renderer ───────────────────────────────────────────────────
@@ -416,19 +471,19 @@ export function DetailedAnalysisExport() {
     tableInstance: ReturnType<typeof useReactTable<T>>
   }) {
     return (
-      <>
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
+      <div className="max-h-[400px] overflow-x-auto overflow-y-auto rounded-md border border-gray-200">
+        <Table>
             <TableHeader>
               {tableInstance.getHeaderGroups().map(hg => (
                 <TableRow key={hg.id}>
                   {hg.headers.map(header => (
-                    <TableHead key={header.id} className="whitespace-nowrap bg-muted/50">
+                    <TableHead key={header.id} colSpan={header.colSpan}
+                        className="whitespace-nowrap bg-[#1a1a1a] font-bold text-white">
                       {header.column.getCanSort() ? (
                         <button
                           type="button"
                           onClick={() => header.column.toggleSorting(header.column.getIsSorted() === 'asc')}
-                          className="flex items-center gap-1 font-medium hover:text-foreground"
+                          className="flex items-center gap-1 font-medium text-white hover:text-white/90"
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
                           {header.column.getIsSorted() === 'asc'  && ' ↑'}
@@ -466,20 +521,6 @@ export function DetailedAnalysisExport() {
             </TableBody>
           </Table>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <p className="text-sm text-muted-foreground">
-            Page {tableInstance.getState().pagination.pageIndex + 1} of {tableInstance.getPageCount()}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm"
-              onClick={() => tableInstance.previousPage()}
-              disabled={!tableInstance.getCanPreviousPage()}>Previous</Button>
-            <Button variant="outline" size="sm"
-              onClick={() => tableInstance.nextPage()}
-              disabled={!tableInstance.getCanNextPage()}>Next</Button>
-          </div>
-        </div>
-      </>
     )
   }
 
@@ -491,37 +532,37 @@ export function DetailedAnalysisExport() {
       {/* 1. Before-overrides KPI cards */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {loadError && <p className="col-span-full text-sm text-destructive">{loadError}</p>}
-        <Card>
+        <Card className={whiteCardClass}>
           <CardContent className="pt-6">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Unmatched Transactions</p>
-            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+            <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Total Unmatched Transactions</p>
+            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#1a1a1a]">
               {loading ? '—' : summaryBefore.totalCount.toLocaleString()}
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={whiteCardClass}>
           <CardContent className="pt-6">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Unmatched Amount</p>
-            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+            <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Total Unmatched Amount</p>
+            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#1a1a1a]">
               {loading ? '—' : `$${summaryBefore.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={whiteCardClass}>
           <CardContent className="pt-6">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Largest Unmatched Transaction</p>
-            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+            <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Largest Unmatched Transaction</p>
+            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#1a1a1a]">
               {loading ? '—' : `$${summaryBefore.largestAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={whiteCardClass}>
           <CardContent className="pt-6">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Top Vendor Concentration</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">
+            <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Top Vendor Concentration</p>
+            <p className="mt-1 text-lg font-semibold text-[#1a1a1a]">
               {loading ? '—' : summaryBefore.topVendor || '—'}
             </p>
-            <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
+            <p className="mt-0.5 text-sm tabular-nums text-[#1a1a1a]/70">
               {loading ? '—' : `$${summaryBefore.topVendorAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} unmatched`}
             </p>
           </CardContent>
@@ -529,17 +570,17 @@ export function DetailedAnalysisExport() {
       </section>
 
       {/* 2a. GL Unmatched Records */}
-      <Card>
+      <Card className={whiteCardClass}>
         <CardHeader>
-          <CardTitle>GL Unmatched Records</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-[#1a1a1a]">GL Unmatched Records</CardTitle>
+          <CardDescription className="text-[#1a1a1a]">
             General Ledger rows with no match. Enter Subledger Row ID(s) in the Override column to manually link records;
             use commas for many-to-one.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
+            <div className="flex items-center gap-2 text-sm text-[#1a1a1a] py-6">
               <Loader2 className="size-4 animate-spin" aria-hidden />
               Loading…
             </div>
@@ -550,17 +591,17 @@ export function DetailedAnalysisExport() {
       </Card>
 
       {/* 2b. Subledger Unmatched Records */}
-      <Card>
+      <Card className={whiteCardClass}>
         <CardHeader>
-          <CardTitle>Subledger Unmatched Records</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-[#1a1a1a]">Subledger Unmatched Records</CardTitle>
+          <CardDescription className="text-[#1a1a1a]">
             Subledger rows with no match. Enter GL Row ID(s) in the Override column to manually link records;
             use commas for many-to-one.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
+            <div className="flex items-center gap-2 text-sm text-[#1a1a1a] py-6">
               <Loader2 className="size-4 animate-spin" aria-hidden />
               Loading…
             </div>
@@ -572,14 +613,14 @@ export function DetailedAnalysisExport() {
 
       {/* 3. After-overrides KPI cards (debounced real-time) */}
       <section>
-        <p className="mb-3 text-sm font-medium text-muted-foreground">
+        <p className="mb-3 text-sm font-medium text-[#1a1a1a]">
           Summary of final unmatched transactions after Overrides.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
+          <Card className={whiteCardClass}>
             <CardContent className="pt-6">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Remaining Unmatched</p>
-              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+              <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Remaining Unmatched</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#1a1a1a]">
                 {loading ? '—' : summaryAfter.totalCount.toLocaleString()}
               </p>
               {summaryAfter.resolvedCount > 0 && (
@@ -589,29 +630,29 @@ export function DetailedAnalysisExport() {
               )}
             </CardContent>
           </Card>
-          <Card>
+          <Card className={whiteCardClass}>
             <CardContent className="pt-6">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Remaining GL Amount</p>
-              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+              <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Remaining GL Amount</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#1a1a1a]">
                 {loading ? '—' : `$${summaryAfter.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
               </p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className={whiteCardClass}>
             <CardContent className="pt-6">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Largest Remaining</p>
-              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground">
+              <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Largest Remaining</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#1a1a1a]">
                 {loading ? '—' : `$${summaryAfter.largestAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
               </p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className={whiteCardClass}>
             <CardContent className="pt-6">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Top Remaining Vendor</p>
-              <p className="mt-1 text-lg font-semibold text-foreground">
+              <p className="text-xs uppercase tracking-wide text-[#1a1a1a]">Top Remaining Vendor</p>
+              <p className="mt-1 text-lg font-semibold text-[#1a1a1a]">
                 {loading ? '—' : summaryAfter.topVendor || '—'}
               </p>
-              <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
+              <p className="mt-0.5 text-sm tabular-nums text-[#1a1a1a]/70">
                 {loading ? '—' : `$${summaryAfter.topVendorAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} unmatched`}
               </p>
             </CardContent>
@@ -620,25 +661,23 @@ export function DetailedAnalysisExport() {
       </section>
 
       {/* 4. Accept Overrides & Finalize */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <Button size="lg" onClick={handleFinalize} disabled={finalizing}>
-              {finalizing ? (
-                <><Loader2 className="size-4 animate-spin" aria-hidden />Saving…</>
-              ) : (
-                <>Accept Overrides &amp; Finalize<ArrowRight className="size-4" aria-hidden /></>
-              )}
-            </Button>
-            {summaryAfter.resolvedCount > 0 && (
-              <p className="text-sm text-muted-foreground">
-                {summaryAfter.resolvedCount} manual override(s) will be included in the export.
-              </p>
+      <div>
+        <div className="flex flex-wrap items-center gap-4">
+          <Button size="lg" onClick={handleFinalize} disabled={finalizing}>
+            {finalizing ? (
+              <><Loader2 className="size-4 animate-spin" aria-hidden />Saving…</>
+            ) : (
+              <>Accept Overrides &amp; Finalize<ArrowRight className="size-4" aria-hidden /></>
             )}
-          </div>
-          {finalizeError && <p className="mt-2 text-sm text-destructive">{finalizeError}</p>}
-        </CardContent>
-      </Card>
+          </Button>
+          {summaryAfter.resolvedCount > 0 && (
+            <p className="text-sm text-[#1a1a1a]/70">
+              {summaryAfter.resolvedCount} manual override(s) will be included in the export.
+            </p>
+          )}
+        </div>
+        {finalizeError && <p className="mt-2 text-sm text-destructive">{finalizeError}</p>}
+      </div>
 
     </PageLayout>
   )

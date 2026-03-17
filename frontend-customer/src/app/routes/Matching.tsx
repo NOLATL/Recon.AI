@@ -190,7 +190,6 @@ export function Matching() {
           try {
             const cons = await getConsolidation(sessionId)
             if (!cancelled) {
-              const s = cons.summary ?? {}
               const glAmtMap = new Map<string, number>()
               ;(cons.gl_records ?? []).forEach((r: Record<string, unknown>) => {
                 const id = String(r.gl_id ?? '')

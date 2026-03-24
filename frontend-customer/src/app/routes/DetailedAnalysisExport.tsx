@@ -478,7 +478,7 @@ export function DetailedAnalysisExport() {
                 <TableRow key={hg.id}>
                   {hg.headers.map(header => (
                     <TableHead key={header.id} colSpan={header.colSpan}
-                        className="whitespace-nowrap bg-[#1a1a1a] font-bold text-white">
+                        className="whitespace-nowrap bg-[#333333] font-bold text-white">
                       {header.column.getCanSort() ? (
                         <button
                           type="button"
@@ -663,7 +663,7 @@ export function DetailedAnalysisExport() {
       {/* 4. Accept Overrides & Finalize */}
       <div>
         <div className="flex flex-wrap items-center gap-4">
-          <Button size="lg" onClick={handleFinalize} disabled={finalizing}>
+          <Button size="lg" variant="brand" onClick={handleFinalize} disabled={finalizing}>
             {finalizing ? (
               <><Loader2 className="size-4 animate-spin" aria-hidden />Saving…</>
             ) : (

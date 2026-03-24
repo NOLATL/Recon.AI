@@ -48,14 +48,14 @@
 :root {
     --radius: 0.75rem;
     /* Backgrounds */
-    --background: oklch(0.065 0 0);        /* #0A0A0A void */
+    --background: #E7E7E7;                 /* PC_PaleCharcol */
     --foreground: oklch(0.97 0 0);         /* white */
     --card: oklch(0.1 0 0);               /* #161616 void-surface */
     --card-foreground: oklch(0.97 0 0);
     --popover: oklch(0.135 0 0);          /* #1F1F1F void-elevated */
     --popover-foreground: oklch(0.97 0 0);
     /* Brand */
-    --primary: oklch(0.47 0.19 25);       /* #CC2529 BDO red */
+    --primary: #E81A3B;                    /* PC_Red */
     --primary-foreground: oklch(0.97 0 0);
     /* Secondary surfaces */
     --secondary: oklch(0.135 0 0);        /* #1F1F1F */
@@ -64,13 +64,13 @@
     --muted-foreground: oklch(0.65 0 0);  /* ~white/60 */
     --accent: oklch(0.19 0 0);
     --accent-foreground: oklch(0.97 0 0);
-    --destructive: oklch(0.47 0.19 25);
+    --destructive: #98002E;
     /* Borders / inputs */
     --border: oklch(0.19 0 0);           /* #2A2A2A */
     --input: oklch(0.19 0 0);
-    --ring: oklch(0.47 0.19 25 / 0.4);   /* BDO red glow */
+    --ring: #98002E;                     /* PC_Burgundy glow */
     /* Charts */
-    --chart-1: oklch(0.47 0.19 25);      /* BDO red */
+    --chart-1: #98002E;                  /* PC_Burgundy */
     --chart-2: oklch(0.6 0.15 293);      /* violet */
     --chart-3: oklch(0.65 0.15 220);     /* sky */
     --chart-4: oklch(0.7 0.15 160);      /* emerald */
@@ -78,12 +78,12 @@
     /* Sidebar */
     --sidebar: oklch(0.1 0 0);           /* #161616 void-surface */
     --sidebar-foreground: oklch(0.97 0 0);
-    --sidebar-primary: oklch(0.47 0.19 25);
+    --sidebar-primary: #98002E;            /* PC_Burgundy */
     --sidebar-primary-foreground: oklch(0.97 0 0);
     --sidebar-accent: oklch(0.19 0 0);   /* hover state */
     --sidebar-accent-foreground: oklch(0.97 0 0);
     --sidebar-border: oklch(0.19 0 0);
-    --sidebar-ring: oklch(0.47 0.19 25 / 0.4);
+    --sidebar-ring: #98002E;
 }
 
 @layer base {

@@ -88,12 +88,12 @@ export function VendorPreprocessingTable({
           <col style={{ width: `${widths.override}%` }} />
         </colgroup>
         <TableHeader>
-          <TableRow className="bg-[#1a1a1a]">
-            <TableHead className="font-mono font-bold text-white bg-[#1a1a1a]">GL Vendor (Input)</TableHead>
-            <TableHead className="font-mono font-bold text-white bg-[#1a1a1a]">Subledger Vendor (Input)</TableHead>
-            <TableHead className="font-mono font-bold text-white bg-[#1a1a1a]">Standardized Vendor Name</TableHead>
-            <TableHead className="w-[100px] font-mono font-bold text-white bg-[#1a1a1a]">Method</TableHead>
-            <TableHead className="relative min-w-[200px] font-mono font-bold text-white bg-[#1a1a1a]">
+          <TableRow className="bg-[#333333]">
+            <TableHead className="font-mono font-bold text-white bg-[#333333]">GL Vendor (Input)</TableHead>
+            <TableHead className="font-mono font-bold text-white bg-[#333333]">Subledger Vendor (Input)</TableHead>
+            <TableHead className="font-mono font-bold text-white bg-[#333333]">Standardized Vendor Name</TableHead>
+            <TableHead className="w-[100px] font-mono font-bold text-white bg-[#333333]">Method</TableHead>
+            <TableHead className="relative min-w-[200px] font-mono font-bold text-white bg-[#333333]">
               Override
               <div
                 role="separator"

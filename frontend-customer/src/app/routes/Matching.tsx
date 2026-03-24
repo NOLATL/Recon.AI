@@ -415,12 +415,12 @@ export function Matching() {
 
       <div className="flex flex-wrap items-center gap-4">
         {!allComplete && (
-          <Button variant="default" onClick={handleCancel}>
+          <Button variant="brand" onClick={handleCancel}>
             Cancel Run
           </Button>
         )}
         {allComplete && (
-          <Button asChild size="lg">
+          <Button asChild size="lg" variant="brand">
             <Link to="/high-level-analysis">
               View Results
               <ArrowRight className="size-4" aria-hidden />

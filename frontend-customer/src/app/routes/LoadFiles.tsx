@@ -101,24 +101,24 @@ function DataDescriptionSection({ label, profile }: { label: string; profile: Fi
           <div className="overflow-x-auto">
             <Table className="text-xs table-auto w-full">
               <TableHeader>
-                <TableRow className="bg-[#1a1a1a]">
-                  <TableHead className="whitespace-nowrap font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Column</TableHead>
-                  <TableHead className="whitespace-nowrap font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Type</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Cnt Unique</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Cnt Null</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Null %</TableHead>
+                <TableRow className="bg-[#333333]">
+                  <TableHead className="whitespace-nowrap font-bold text-white bg-[#333333] py-1.5 px-2">Column</TableHead>
+                  <TableHead className="whitespace-nowrap font-bold text-white bg-[#333333] py-1.5 px-2">Type</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Cnt Unique</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Cnt Null</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Null %</TableHead>
                   {/* Numeric stats: Min, Max, Sum, Avg, Std Dev, Median */}
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Min</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Max</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Sum</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Avg</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Std Dev</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Median</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Min</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Max</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Sum</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Avg</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Std Dev</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Median</TableHead>
                   {/* String stats */}
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Max Len</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Min Len</TableHead>
-                  <TableHead className="text-right font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Blanks</TableHead>
-                  <TableHead className="font-bold text-white bg-[#1a1a1a] py-1.5 px-2">Mode</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Max Len</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Min Len</TableHead>
+                  <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Blanks</TableHead>
+                  <TableHead className="font-bold text-white bg-[#333333] py-1.5 px-2">Mode</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -394,7 +394,7 @@ export function LoadFiles() {
       {/* Process Data button — shown before profiling starts (red, like Get Started) */}
       {hasAllFiles && !profileResponse && !profileLoading && (
         <div className="mt-2">
-          <Button size="lg" variant="default" onClick={doUploadAndProfile}>
+          <Button size="lg" variant="brand" onClick={doUploadAndProfile}>
             Process Data
           </Button>
         </div>
@@ -476,10 +476,10 @@ export function LoadFiles() {
                                 <p className="text-xs text-[#1a1a1a]">Null counts by column</p>
                                 <Table>
                                   <TableHeader>
-                                    <TableRow className="bg-[#1a1a1a]">
-                                      <TableHead className="font-bold text-white bg-[#1a1a1a]">Column</TableHead>
-                                      <TableHead className="font-bold text-white bg-[#1a1a1a]">Null count</TableHead>
-                                      <TableHead className="font-bold text-white bg-[#1a1a1a]">Null %</TableHead>
+                                    <TableRow className="bg-[#333333]">
+                                      <TableHead className="font-bold text-white bg-[#333333]">Column</TableHead>
+                                      <TableHead className="font-bold text-white bg-[#333333]">Null count</TableHead>
+                                      <TableHead className="font-bold text-white bg-[#333333]">Null %</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
@@ -581,6 +581,7 @@ export function LoadFiles() {
         <footer className="flex flex-col items-start gap-4 border-t pt-6">
           <Button
             size="lg"
+            variant="brand"
             disabled={isRunning}
             onClick={handleRunMatching}
           >

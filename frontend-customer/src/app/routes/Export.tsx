@@ -196,7 +196,7 @@ export function Export() {
 
           {/* Download */}
           <div className="border-t border-gray-200 pt-4">
-            <Button onClick={handleDownload} size="lg" disabled={exportLoading}>
+            <Button onClick={handleDownload} size="lg" variant="brand" disabled={exportLoading}>
               {exportLoading ? (
                 <><Loader2 className="size-4 animate-spin" aria-hidden />Exporting…</>
               ) : (

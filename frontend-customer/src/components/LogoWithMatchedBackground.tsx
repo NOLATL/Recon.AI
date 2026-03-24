@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
-/** Charcoal (matches --background in index.css) */
-const CHARCOAL_BG = { r: 10, g: 10, b: 10 }
+/** Charcoal background (#333333) to match landing page section */
+const CHARCOAL_BG = { r: 51, g: 51, b: 51 }
 
 /** Parse computed backgroundColor (e.g. "rgb(204, 37, 41)", "rgb(204 37 41)", "rgba(...)") to { r, g, b } */
 function parseRgb(str: string): { r: number; g: number; b: number } | null {
@@ -40,8 +40,8 @@ function getPrimaryColorFromSidebar(img: HTMLImageElement): { r: number; g: numb
   return { r: 204, g: 37, b: 41 }
 }
 
-/** Charcoal for logo graphic when on red background (#1a1a1a) */
-const LOGO_CHARCOAL = { r: 26, g: 26, b: 26 }
+/** White for logo graphic when on red/dark background */
+const LOGO_CHARCOAL = { r: 255, g: 255, b: 255 }
 
 /** Pixels where R≈G≈B and luminance is in charcoal range get replaced with target bg */
 function isCharcoalBg(r: number, g: number, b: number): boolean {
@@ -50,7 +50,7 @@ function isCharcoalBg(r: number, g: number, b: number): boolean {
     Math.abs(r - g) < 30 &&
     Math.abs(g - b) < 30 &&
     Math.abs(r - b) < 30
-  return isNeutral && gray >= 12 && gray <= 90
+  return isNeutral && gray >= 5 && gray <= 90
 }
 
 /** White/light pixels (logo mark) — when on red, replace with charcoal so logo appears charcoal */

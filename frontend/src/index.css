@@ -8,7 +8,7 @@
   body {
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    background-color: #0A0A0A;
+    background-color: #E7E7E7;
   }
 }
 
@@ -79,21 +79,21 @@
   --ag-odd-row-background-color: #1a1a1a;
   --ag-header-background-color: #1f1f1f;
   --ag-border-color: #2a2a2a;
-  --ag-row-hover-color: rgba(204, 37, 41, 0.08);
-  --ag-selected-row-background-color: rgba(204, 37, 41, 0.15);
+  --ag-row-hover-color: rgba(152, 0, 46, 0.08);
+  --ag-selected-row-background-color: rgba(152, 0, 46, 0.15);
   --ag-foreground-color: rgba(255, 255, 255, 0.85);
   --ag-header-foreground-color: rgba(255, 255, 255, 0.45);
   --ag-secondary-foreground-color: rgba(255, 255, 255, 0.45);
-  --ag-input-focus-border-color: #CC2529;
-  --ag-range-selection-border-color: #CC2529;
-  --ag-checkbox-checked-color: #CC2529;
+  --ag-input-focus-border-color: #98002E;
+  --ag-range-selection-border-color: #98002E;
+  --ag-checkbox-checked-color: #98002E;
   --ag-font-size: 12px;
   --ag-font-family: 'Inter', system-ui, sans-serif;
   --ag-row-border-color: #2a2a2a;
   --ag-cell-horizontal-border: solid #2a2a2a;
   --ag-header-column-separator-color: #2a2a2a;
   --ag-pagination-button-color: rgba(255, 255, 255, 0.6);
-  --ag-pagination-button-hover-color: #CC2529;
+  --ag-pagination-button-hover-color: #98002E;
 }
 
 .ag-theme-alpine .ag-root-wrapper {

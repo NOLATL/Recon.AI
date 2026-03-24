@@ -30,7 +30,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="fixed left-0 top-0 z-50 h-full w-64 bg-primary">
+    <aside className="fixed left-0 top-0 z-50 h-full w-64 bg-[#98002E]">
       {/* Logo: centered in pane, higher z-index so visible above other layers */}
       <div className="relative z-50 flex justify-center pt-6 pb-4 min-h-[4.5rem]">
         <LogoWithMatchedBackground
@@ -50,7 +50,7 @@ export function Sidebar() {
                   'flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-medium text-white transition-colors',
                   isActive
                     ? 'bg-white text-[#1a1a1a]'
-                    : 'bg-[#1a1a1a] hover:bg-[#2a2a2a]'
+                    : 'bg-[#333333] hover:bg-[#444444]'
                 )
               }
             >
@@ -62,7 +62,7 @@ export function Sidebar() {
             <button
               type="button"
               onClick={handleResetSession}
-              className="flex w-full items-center justify-start gap-3 rounded-full bg-[#1a1a1a] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2a2a2a]"
+              className="flex w-full items-center justify-start gap-3 rounded-full bg-[#333333] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#444444]"
             >
               <RotateCcw className="size-4 shrink-0" aria-hidden />
               Reset Session

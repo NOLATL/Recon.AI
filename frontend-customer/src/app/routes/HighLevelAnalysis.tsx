@@ -675,7 +675,7 @@ export function HighLevelAnalysis() {
                 Reject All
               </Button>
             </div>
-            <Button size="sm" onClick={handleProcessAndNavigate}>
+            <Button size="sm" variant="brand" onClick={handleProcessAndNavigate}>
               Process Updates &amp; View Detailed Analysis
               <ArrowRight className="size-4 ml-1" aria-hidden />
             </Button>
@@ -690,7 +690,7 @@ export function HighLevelAnalysis() {
                     {headerGroup.headers.map((header) => (
                       <TableHead key={header.id} colSpan={header.colSpan}
                         style={header.column.getSize() ? { width: header.column.getSize() } : undefined}
-                        className="whitespace-nowrap bg-[#1a1a1a] font-bold text-white">
+                        className="whitespace-nowrap bg-[#333333] font-bold text-white">
                         {header.isPlaceholder
                           ? null
                           : flexRender(header.column.columnDef.header, header.getContext())}
@@ -783,7 +783,7 @@ export function HighLevelAnalysis() {
                                 Method: {row.original.match_method} · Confidence: {(row.original.confidence * 100).toFixed(0)}%
                               </p>
                               <div className="flex flex-wrap gap-2">
-                                <Button size="sm" variant="default" onClick={() => handleAccept(row.original.id)}>
+                                <Button size="sm" variant="brand" onClick={() => handleAccept(row.original.id)}>
                                   <Check className="size-3.5" aria-hidden />
                                   Accept Match
                                 </Button>

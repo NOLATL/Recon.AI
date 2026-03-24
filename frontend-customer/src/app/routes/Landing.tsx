@@ -152,17 +152,17 @@ export function Landing() {
           Red shows through in rounded corners of charcoal (top) and white (bottom). */}
 
       {/* Header — fixed above both sections */}
-      <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-end px-6 lg:px-10 py-4 bg-background/95 backdrop-blur-md border-b border-border">
+      <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-end px-6 lg:px-10 py-4 bg-[#333333]/95 backdrop-blur-md">
         <nav className="flex items-center gap-6">
           <button
             type="button"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="text-sm font-medium text-white/70 hover:text-white transition-colors"
           >
             Documentation
           </button>
           <a
             href="#faq"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="text-sm font-medium text-white/70 hover:text-white transition-colors"
           >
             FAQ
           </a>
@@ -174,13 +174,13 @@ export function Landing() {
 
       {/* Layer 2: Top section — Charcoal fills section, square top, rounded bottom (red shows in bottom corners) */}
       <div
-        className="relative z-10 h-screen overflow-hidden bg-background flex flex-col rounded-b-[80px]"
+        className="relative z-10 h-screen min-h-[600px] overflow-hidden bg-[#333333] flex flex-col rounded-b-[clamp(40px,5vw,80px)]"
       >
-        <main className="flex-1 pt-20 pb-6 px-6 lg:px-10">
+        <main className="flex-1 pt-[clamp(4.5rem,8vh,5rem)] pb-4 px-6 lg:px-10 overflow-y-auto">
           <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-12 lg:gap-16 items-start">
             {/* Left: Branding (CUSTOMER_UI_SPEC) */}
             <div className="flex-1 max-w-xl">
-              <LogoWithMatchedBackground alt="ReconAI" className="h-[clamp(160px,22vh,280px)] w-auto" />
+              <LogoWithMatchedBackground alt="ReconAI" background="charcoal" className="h-[clamp(160px,22vh,280px)] w-auto" />
               <div className="mt-[min(40px,3.5vh)] space-y-4">
                 <h1 className="text-[2rem] lg:text-[2.5rem] font-bold tracking-tight text-foreground leading-[1.15]">
                   Reconcile your GL in minutes.<br />
@@ -292,16 +292,16 @@ export function Landing() {
       {/* Layer 3: Bottom section — White rounded rect fills section (red shows in corners) */}
       <section
         id="overview-steps"
-        className="relative z-10 h-screen overflow-hidden flex flex-col scroll-mt-20"
+        className="relative z-10 h-screen min-h-[600px] overflow-hidden flex flex-col scroll-mt-20"
       >
         <div
-          className="bg-white rounded-[80px] pt-16 pb-6 px-8 lg:pt-20 lg:pb-8 lg:px-12 flex-1 min-h-0 flex flex-col w-full"
+          className="bg-white rounded-[clamp(40px,5vw,80px)] pt-[clamp(5rem,9vh,7rem)] pb-[clamp(1rem,2vh,2rem)] px-8 lg:px-12 flex-1 min-h-0 flex flex-col w-full"
         >
-              <h2 className="text-4xl lg:text-5xl font-bold text-[#1a1a1a] text-center mb-6">
+              <h2 className="text-[clamp(1.75rem,3.5vw,3.25rem)] font-bold text-[#1a1a1a] text-center mb-[clamp(1rem,2vh,1.5rem)]">
                 Your Reconciliation Pipeline
               </h2>
 
-              {/* iPod-style carousel: active card center, others progressively smaller/blurred (cards 1.75x scale) */}
+              {/* iPod-style carousel — card size and spacing scale with viewport */}
               <div className="relative flex items-center justify-center flex-1 min-h-0 overflow-hidden">
                 {OVERVIEW_STEPS.map((step, idx) => {
                   const offset = idx - activeStep
@@ -310,26 +310,32 @@ export function Landing() {
                   const scale = isActive ? 1 : Math.max(0.5, 1 - absOffset * 0.15)
                   const blur = isActive ? 0 : Math.min(8, absOffset * 2)
                   const opacity = isActive ? 1 : Math.max(0.3, 1 - absOffset * 0.2)
-                  const translateX = offset * 170
 
                   return (
                     <div
                       key={idx}
                       className="absolute transition-all duration-300 ease-out"
                       style={{
-                        transform: `translateX(${translateX}px) scale(${scale})`,
+                        transform: `translateX(calc(${offset} * clamp(110px, 11vw, 180px))) scale(${scale})`,
                         filter: blur ? `blur(${blur}px)` : 'none',
                         opacity,
                         zIndex: isActive ? 10 : 5 - absOffset,
                         pointerEvents: isActive ? 'auto' : 'none',
                       }}
                     >
-                      <div className="bg-[#0a0a0a] rounded-2xl p-10 w-[420px] h-[420px] shadow-xl text-white flex flex-col">
-                        <div className="flex items-center justify-center w-[42px] h-[42px] rounded-xl bg-white/10 mb-6 [&_svg]:text-white">
+                      <div
+                        className="bg-[#333333] rounded-2xl shadow-xl text-white flex flex-col"
+                        style={{
+                          width: 'clamp(220px, 26vw, 420px)',
+                          height: 'clamp(220px, min(26vw, 42vh), 420px)',
+                          padding: 'clamp(1.25rem, 2.5vw, 2.5rem)',
+                        }}
+                      >
+                        <div className="flex items-center justify-center w-[clamp(32px,3vw,42px)] h-[clamp(32px,3vw,42px)] mb-[clamp(0.75rem,1.5vh,1.5rem)] [&_svg]:text-white shrink-0">
                           <StepIcon type={step.icon} iconFile={step.iconFile} className="scale-[1.75]" />
                         </div>
-                        <h3 className="text-2xl font-bold mb-3">{step.title}</h3>
-                        <p className="text-base text-white/80 leading-relaxed">{step.description}</p>
+                        <h3 className="font-bold mb-2 text-[clamp(1rem,1.6vw,1.5rem)]">{step.title}</h3>
+                        <p className="text-white/80 leading-relaxed text-[clamp(0.8rem,1.1vw,1rem)]">{step.description}</p>
                       </div>
                     </div>
                   )

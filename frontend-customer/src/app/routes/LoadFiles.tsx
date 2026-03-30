@@ -22,17 +22,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { FileDropzone, type UploadStatus } from '@/components/upload/FileDropzone'
 import { VendorPreprocessingTable, computeFinalVendorName } from '@/components/VendorPreprocessingTable'
-import { ColumnHistogramHover } from '@/components/upload/ColumnHistogramHover'
 import { ColumnMappingSection } from '@/components/ColumnMappingSection'
 import { MatchingConfigSection } from '@/components/MatchingConfigSection'
 import { ChatPanel } from '@/components/ChatPanel'
@@ -128,67 +119,6 @@ function BanCards({ profile }: { profile: FileProfile }) {
   )
 }
 
-// ─── Column stats detail table ────────────────────────────────────────────────
-function ColumnStatsTable({ profile }: { profile: FileProfile }) {
-  if (profile.column_stats.length === 0) return null
-  return (
-    <div>
-      <p className="mb-1 text-sm font-medium text-[#1a1a1a] uppercase tracking-wide">Data Description</p>
-      <p className="mb-2 text-xs text-[#1a1a1a]">Hover a column name for description and distribution.</p>
-      <div className="overflow-x-auto">
-        <Table className="text-xs table-auto w-full">
-          <TableHeader>
-            <TableRow className="bg-[#333333]">
-              <TableHead className="whitespace-nowrap font-bold text-white bg-[#333333] py-1.5 px-2">Column</TableHead>
-              <TableHead className="whitespace-nowrap font-bold text-white bg-[#333333] py-1.5 px-2">Type</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Cnt Unique</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Cnt Null</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Null %</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Min</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Max</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Sum</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Avg</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Std Dev</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Median</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Max Len</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Min Len</TableHead>
-              <TableHead className="text-right font-bold text-white bg-[#333333] py-1.5 px-2">Blanks</TableHead>
-              <TableHead className="font-bold text-white bg-[#333333] py-1.5 px-2">Mode</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {profile.column_stats.map((col) => (
-              <TableRow key={col.name}>
-                <TableCell className="whitespace-nowrap font-mono text-xs py-1 px-2">
-                  <ColumnHistogramHover
-                    columnName={col.name}
-                    buckets={col.histogram ?? []}
-                    description={COLUMN_DESCRIPTIONS[col.name]}
-                  />
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-[#1a1a1a] capitalize py-1 px-2">{col.data_type}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2">{col.unique_count.toLocaleString()}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2">{col.null_count.toLocaleString()}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2">{col.null_pct != null ? `${Math.round(col.null_pct)}%` : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'numeric' ? fmt(col.min as number) : col.data_type === 'date' ? String(col.min ?? '—') : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'numeric' ? fmt(col.max as number) : col.data_type === 'date' ? String(col.max ?? '—') : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'numeric' ? fmt(col.sum) : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'numeric' ? fmt(col.mean) : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'numeric' ? fmt(col.std) : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'numeric' ? fmt(col.median) : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'string' ? (col.max_len ?? '—') : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'string' ? (col.min_len ?? '—') : '—'}</TableCell>
-                <TableCell className="text-right tabular-nums text-xs py-1 px-2 text-[#1a1a1a]">{col.data_type === 'string' ? (col.blank_count ?? '—') : '—'}</TableCell>
-                <TableCell className="font-mono text-xs py-1 px-2 text-[#1a1a1a] max-w-[80px] truncate" title={col.mode ?? undefined}>{col.data_type === 'string' ? (col.mode ?? '—') : '—'}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
-  )
-}
-
 // ─── EDA Charts ──────────────────────────────────────────────────────────────
 function VendorBarChart({
   title,
@@ -229,7 +159,7 @@ function VendorBarChart({
             width={150}
           />
           <Tooltip
-            formatter={(val: number) => [formatter(val), dataKey === 'value' ? title : '']}
+            formatter={(val: number | undefined) => [val != null ? formatter(val) : '', dataKey === 'value' ? title : '']}
             contentStyle={{ fontSize: 12 }}
           />
           <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} />
@@ -294,7 +224,7 @@ function AmountByDayChart({
           />
           <YAxis tick={{ fontSize: 11, fill: '#555' }} tickFormatter={fmtAmt} width={56} />
           <Tooltip
-            formatter={(val: number) => [`$${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, '']}
+            formatter={(val: number | undefined) => [`$${(val ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, '']}
             contentStyle={{ fontSize: 12 }}
           />
           <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
@@ -336,7 +266,7 @@ export function LoadFiles() {
   const reconDesignRef      = useRef<HTMLDivElement>(null)
   const readyRef            = useRef<HTMLDivElement>(null)
 
-  const scrollTo = (ref: React.RefObject<HTMLDivElement>) => {
+  const scrollTo = (ref: React.RefObject<HTMLDivElement | null>) => {
     setTimeout(() => {
       requestAnimationFrame(() => {
         ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -346,7 +276,7 @@ export function LoadFiles() {
 
   // Scroll to the correct section whenever stage changes (runs after DOM updates)
   useEffect(() => {
-    const refMap: Partial<Record<Stage, React.RefObject<HTMLDivElement>>> = {
+    const refMap: Partial<Record<Stage, React.RefObject<HTMLDivElement | null>>> = {
       column_mapping:       columnMappingRef,
       vendor_cleanup:       vendorCleanupRef,
       eda:                  edaRef,
@@ -869,7 +799,6 @@ export function LoadFiles() {
                 <VendorPreprocessingTable
                   vendorNormMap={vendorNormMap}
                   unmatchedSubVendors={unmatchedSubVendors}
-                  unmatchedSubNormalized={unmatchedSubNormalized}
                   vendorOverrides={vendorOverrides}
                   onVendorOverride={handleVendorOverride}
                 />

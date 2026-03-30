@@ -39,7 +39,6 @@ const DEFAULT_WIDTHS = { gl: 20, subledger: 20, matching_process: MATCH_WIDTH_PX
 interface VendorPreprocessingTableProps {
   vendorNormMap: NormEntry[]
   unmatchedSubVendors: string[]
-  unmatchedSubNormalized: Record<string, string>
   vendorOverrides: Record<string, string>
   onVendorOverride: (key: string, value: string) => void
 }
@@ -49,7 +48,6 @@ type ColKey = 'gl' | 'subledger' | 'matching_process' | 'override' | 'final'
 export function VendorPreprocessingTable({
   vendorNormMap,
   unmatchedSubVendors,
-  unmatchedSubNormalized,
   vendorOverrides,
   onVendorOverride,
 }: VendorPreprocessingTableProps) {

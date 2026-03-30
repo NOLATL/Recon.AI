@@ -72,25 +72,6 @@ type Stage =
 const whiteCardClass =
   'bg-white border-gray-200 shadow-[0_2px_8px_rgba(0,0,0,0.08)] rounded-2xl [--foreground:#1a1a1a] [--muted-foreground:#1a1a1a] [--card-foreground:#1a1a1a]'
 
-const COLUMN_DESCRIPTIONS: Record<string, string> = {
-  gl_id:            'Unique identifier for each General Ledger transaction record.',
-  subledger_id:     'Unique identifier for each Subledger transaction record.',
-  entity:           'Business or legal entity associated with the transaction.',
-  account_code:     'General Ledger account code used to classify the transaction.',
-  vendor_name:      'Name of the vendor or supplier involved in the transaction.',
-  transaction_date: 'Date on which the transaction was recorded or posted.',
-  amount:           'Transaction monetary amount in the specified currency.',
-  currency:         'ISO 4217 currency code for the transaction amount.',
-  exception_flag:   'Indicates whether this transaction has been flagged as an exception requiring review.',
-  reference_id:     'Reference identifier linking this Subledger record to its General Ledger counterpart.',
-  materiality_threshold: 'Dollar threshold above which a difference is considered material.',
-}
-
-function fmt(val: number | null | undefined, decimals = 0): string {
-  if (val == null) return '—'
-  return val.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
-}
-
 // ─── Big-number KPI cards ────────────────────────────────────────────────────
 function BanCards({ profile }: { profile: FileProfile }) {
   return (

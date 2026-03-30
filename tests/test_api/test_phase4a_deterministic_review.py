@@ -13,9 +13,11 @@ Tests every explicit requirement:
   - residual_sub_count present in response
   - Snapshot key == 'deterministic_complete' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 5 total snapshots after review
-    (initialized→files_loaded, files_loaded→profiled, profiled→preprocessed,
-     preprocessed→deterministic_complete, deterministic_complete→deterministic_review_complete)
+  - 7 total snapshots after review
+    (initialized→files_loaded, files_loaded→column_mapping_complete,
+     column_mapping_complete→profiled, profiled→preprocessed,
+     preprocessed→matching_configured, matching_configured→deterministic_complete,
+     deterministic_complete→deterministic_review_complete)
 
   [Known result — standard test data]
   After full pipeline (upload → profile → preprocess → deterministic):
@@ -140,10 +142,12 @@ def _advance_to_deterministic_complete(client, session_id):
     """Upload → profile → preprocess → deterministic to reach pre-condition."""
     r1 = _upload(client, session_id)
     assert r1.status_code == 200, f"Upload failed: {r1.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     r2 = _profile(client, session_id)
     assert r2.status_code == 200, f"Profile failed: {r2.text}"
     r3 = _preprocess(client, session_id)
     assert r3.status_code == 200, f"Preprocess failed: {r3.text}"
+    rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
     r4 = _deterministic(client, session_id)
     assert r4.status_code == 200, f"Deterministic failed: {r4.text}"
 
@@ -200,12 +204,14 @@ class TestHappyPath:
 
     def test_five_snapshots_after_review(self, client, session_id):
         """
-        initialized→files_loaded, files_loaded→profiled, profiled→preprocessed,
-        preprocessed→deterministic_complete, deterministic_complete→deterministic_review_complete.
+        initialized→files_loaded, files_loaded→column_mapping_complete,
+        column_mapping_complete→profiled, profiled→preprocessed,
+        preprocessed→matching_configured, matching_configured→deterministic_complete,
+        deterministic_complete→deterministic_review_complete.
         """
         _advance_to_deterministic_complete(client, session_id)
         _review(client, session_id)
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 5
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 7
 
 
 # ---------------------------------------------------------------------------

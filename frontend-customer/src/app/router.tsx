@@ -6,6 +6,8 @@ import { Matching } from './routes/Matching'
 import { HighLevelAnalysis } from './routes/HighLevelAnalysis'
 import { DetailedAnalysisExport } from './routes/DetailedAnalysisExport'
 import { Export } from './routes/Export'
+import { Documentation } from './routes/Documentation'
+import { FAQ } from './routes/FAQ'
 
 export const router = createBrowserRouter([
   {
@@ -18,6 +20,8 @@ export const router = createBrowserRouter([
       { path: 'high-level-analysis', element: <HighLevelAnalysis /> },
       { path: 'detailed-analysis', element: <DetailedAnalysisExport /> },
       { path: 'export', element: <Export /> },
+      { path: 'documentation', element: <Documentation /> },
+      { path: 'faq', element: <FAQ /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

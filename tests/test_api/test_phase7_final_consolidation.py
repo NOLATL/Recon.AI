@@ -11,8 +11,8 @@ Tests every explicit requirement:
   - summary present in response
   - Snapshot key == 'ai_review_complete' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 10 total snapshots after consolidation
-    (phases 0–6A = 9 snapshots, + consolidation = 10)
+  - 12 total snapshots after consolidation
+    (phases 0–6A = 11 snapshots, + consolidation = 12)
 
   [Summary fields]
   - deterministic_match_count present and >= 0
@@ -202,10 +202,17 @@ def _advance_to_ai_review_complete_all_accepted(client, sid):
       - residual: empty
       - rejected: empty
     """
+    r = _upload(client, sid)
+    assert r.status_code == 200, f"upload failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     for step, fn in [
-        ("upload",       lambda: _upload(client, sid)),
         ("profile",      lambda: _profile(client, sid)),
         ("preprocess",   lambda: _preprocess(client, sid)),
+    ]:
+        r = fn()
+        assert r.status_code == 200, f"{step} failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.MATCHING_CONFIGURED)
+    for step, fn in [
         ("deterministic",lambda: _deterministic(client, sid)),
         ("det_review",   lambda: _det_review(client, sid)),
         ("probabilistic",lambda: _probabilistic(client, sid)),
@@ -238,10 +245,17 @@ def _advance_to_ai_review_complete_all_rejected(client, sid):
       - residual: GL003+GL004, SUB003+SUB004 (returned/remaining)
       - rejected: GL003↔SUB003 (prob), GL004↔SUB004 (AI)
     """
+    r = _upload(client, sid)
+    assert r.status_code == 200, f"upload failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     for step, fn in [
-        ("upload",       lambda: _upload(client, sid)),
         ("profile",      lambda: _profile(client, sid)),
         ("preprocess",   lambda: _preprocess(client, sid)),
+    ]:
+        r = fn()
+        assert r.status_code == 200, f"{step} failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.MATCHING_CONFIGURED)
+    for step, fn in [
         ("deterministic",lambda: _deterministic(client, sid)),
         ("det_review",   lambda: _det_review(client, sid)),
         ("probabilistic",lambda: _probabilistic(client, sid)),
@@ -303,10 +317,10 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_ten_snapshots_after_consolidation(self, client, session_id):
-        """Nine prior transitions + consolidation = 10 snapshots total."""
+        """Eleven prior transitions + consolidation = 12 snapshots total."""
         _advance_to_ai_review_complete_all_accepted(client, session_id)
         _consolidate(client, session_id)
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 10
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 12
 
 
 # ===========================================================================
@@ -508,10 +522,17 @@ class TestFinalBucketContent:
     def test_final_does_not_contain_pending_prob(self, client, session_id):
         """Pending probabilistic matches (no decision given) must not be in final."""
         # Advance without giving prob decisions → all prob matches stay pending
+        r = _upload(client, session_id)
+        assert r.status_code == 200, f"upload failed: {r.text}"
+        rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
         for step, fn in [
-            ("upload",       lambda: _upload(client, session_id)),
             ("profile",      lambda: _profile(client, session_id)),
             ("preprocess",   lambda: _preprocess(client, session_id)),
+        ]:
+            r = fn()
+            assert r.status_code == 200, f"{step} failed: {r.text}"
+        rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
+        for step, fn in [
             ("deterministic",lambda: _deterministic(client, session_id)),
             ("det_review",   lambda: _det_review(client, session_id)),
             ("probabilistic",lambda: _probabilistic(client, session_id)),

@@ -39,6 +39,22 @@ from src.services.vendor_normalization import run_normalization
 router = APIRouter(prefix="/reconciliation", tags=["preprocessing"])
 
 
+def _normalized_dist(df: "pd.DataFrame", top_n: int = 15) -> tuple[dict, dict]:
+    """Return (row_dist, amt_dist) keyed by Vendor_Normalized."""
+    if df is None or df.empty or "Vendor_Normalized" not in df.columns:
+        return {}, {}
+    row_dist = df["Vendor_Normalized"].value_counts().head(top_n).astype(int).to_dict()
+    if "amount" in df.columns:
+        amounts = pd.to_numeric(df["amount"], errors="coerce")
+        temp = pd.DataFrame({"vendor": df["Vendor_Normalized"], "amount": amounts}).dropna()
+        amt_dist = (
+            temp.groupby("vendor")["amount"].sum().abs().nlargest(top_n).apply(float).to_dict()
+        )
+    else:
+        amt_dist = {}
+    return row_dist, amt_dist
+
+
 @router.get("/{session_id}/preprocess", response_model=PreprocessingResponse)
 def get_preprocess(session_id: str):
     """
@@ -91,6 +107,10 @@ def get_preprocess(session_id: str):
         ],
         unmatched_sub_vendors=preprocessing.get("unmatched_sub_vendors", []),
         unmatched_sub_normalized=preprocessing.get("unmatched_sub_normalized", {}),
+        gl_normalized_vendor_row_distribution=preprocessing.get("gl_normalized_vendor_row_distribution", {}),
+        gl_normalized_vendor_amt_distribution=preprocessing.get("gl_normalized_vendor_amt_distribution", {}),
+        sl_normalized_vendor_row_distribution=preprocessing.get("sl_normalized_vendor_row_distribution", {}),
+        sl_normalized_vendor_amt_distribution=preprocessing.get("sl_normalized_vendor_amt_distribution", {}),
         snapshot=SnapshotInfo(
             key=            latest.get("pre_transition_state", ""),
             integrity_hash= latest.get("integrity_hash", ""),
@@ -142,6 +162,7 @@ def run_preprocess(session_id: str):
     nlp_threshold = config.get("vendor_nlp_threshold", 0.90)
     alias_map     = config.get("alias_map", {})
     alias_version = config.get("alias_version", "v1.0.0")
+    column_map    = config.get("column_map")
 
     # --- Run normalization pipeline (pure, no side effects) ---
     try:
@@ -151,6 +172,7 @@ def run_preprocess(session_id: str):
             nlp_threshold= nlp_threshold,
             alias_map=     alias_map,
             alias_version= alias_version,
+            column_map=    column_map,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -163,15 +185,22 @@ def run_preprocess(session_id: str):
         "subledger": result.sub_df,
     })
 
+    gl_norm_row, gl_norm_amt = _normalized_dist(result.gl_df)
+    sl_norm_row, sl_norm_amt = _normalized_dist(result.sub_df)
+
     rm.write_preprocessing(session_id, {
-        "threshold_used":           result.threshold_used,
-        "alias_version":            result.alias_version,
-        "tier1_count":              result.tier1_count,
-        "tier2_count":              result.tier2_count,
-        "tier3_count":              result.tier3_count,
-        "total_gl_vendors":         len(result.entries),
-        "unmatched_sub_vendors":    result.unmatched_sub_vendors,
-        "unmatched_sub_normalized": result.unmatched_sub_normalized,
+        "threshold_used":               result.threshold_used,
+        "alias_version":                result.alias_version,
+        "tier1_count":                  result.tier1_count,
+        "tier2_count":                  result.tier2_count,
+        "tier3_count":                  result.tier3_count,
+        "total_gl_vendors":             len(result.entries),
+        "unmatched_sub_vendors":        result.unmatched_sub_vendors,
+        "unmatched_sub_normalized":     result.unmatched_sub_normalized,
+        "gl_normalized_vendor_row_distribution": gl_norm_row,
+        "gl_normalized_vendor_amt_distribution": gl_norm_amt,
+        "sl_normalized_vendor_row_distribution": sl_norm_row,
+        "sl_normalized_vendor_amt_distribution": sl_norm_amt,
     })
 
     # --- Advance state (snapshot fires automatically) ---
@@ -204,6 +233,10 @@ def run_preprocess(session_id: str):
         ],
         unmatched_sub_vendors=result.unmatched_sub_vendors,
         unmatched_sub_normalized=result.unmatched_sub_normalized,
+        gl_normalized_vendor_row_distribution=gl_norm_row,
+        gl_normalized_vendor_amt_distribution=gl_norm_amt,
+        sl_normalized_vendor_row_distribution=sl_norm_row,
+        sl_normalized_vendor_amt_distribution=sl_norm_amt,
         snapshot=SnapshotInfo(
             key=             latest.get("pre_transition_state", ""),
             integrity_hash=  latest.get("integrity_hash", ""),
@@ -218,13 +251,17 @@ def run_preprocess(session_id: str):
 _SUB_PREFIX = "__sub__"
 
 
-def _apply_vendor_overrides(clean_data: dict, overrides: dict) -> None:
+def _apply_vendor_overrides(clean_data: dict, overrides: dict, column_map: dict | None = None) -> None:
     """
     Apply manual vendor overrides to Vendor_Normalized in clean_data.
-    - GL: key = original vendor_name (from vendor_normalization_map)
-    - Sub: key = "__sub__" + subledger vendor_name
+    - GL: key = original vendor value (from vendor_normalization_map)
+    - Sub: key = "__sub__" + subledger vendor value
     Override values become the final Vendor_Normalized for matching and output.
-    Empty overrides are ignored (keep existing). vendor_name is unchanged (display).
+    Empty overrides are ignored (keep existing). Original vendor column is unchanged (display only).
+
+    column_map is used to resolve the actual vendor column name for each side.
+    Falls back to "vendor_name" if column_map is absent or the role is unmapped.
+    Both matched AND unmatched vendors receive their override (no distinction by match status).
     """
     if not overrides:
         return
@@ -232,9 +269,14 @@ def _apply_vendor_overrides(clean_data: dict, overrides: dict) -> None:
     gl_df = clean_data.get("gl")
     sub_df = clean_data.get("subledger")
 
-    if gl_df is not None and not gl_df.empty and "vendor_name" in gl_df.columns and "Vendor_Normalized" in gl_df.columns:
+    # Resolve vendor column names from column_map (same logic as run_normalization)
+    cm = column_map or {}
+    gl_vendor_col  = cm.get("side_a", {}).get("vendor") or "vendor_name"
+    sub_vendor_col = cm.get("side_b", {}).get("vendor") or "vendor_name"
+
+    if gl_df is not None and not gl_df.empty and gl_vendor_col in gl_df.columns and "Vendor_Normalized" in gl_df.columns:
         def gl_override(row):
-            v = row["vendor_name"]
+            v = row[gl_vendor_col]
             if pd.isna(v):
                 return row["Vendor_Normalized"]
             sv = str(v)
@@ -246,9 +288,9 @@ def _apply_vendor_overrides(clean_data: dict, overrides: dict) -> None:
 
         gl_df["Vendor_Normalized"] = gl_df.apply(gl_override, axis=1)
 
-    if sub_df is not None and not sub_df.empty and "vendor_name" in sub_df.columns and "Vendor_Normalized" in sub_df.columns:
+    if sub_df is not None and not sub_df.empty and sub_vendor_col in sub_df.columns and "Vendor_Normalized" in sub_df.columns:
         def sub_override(row):
-            v = row["vendor_name"]
+            v = row[sub_vendor_col]
             if pd.isna(v):
                 return row["Vendor_Normalized"]
             key = _SUB_PREFIX + str(v)
@@ -278,6 +320,7 @@ def apply_vendor_overrides(session_id: str, body: VendorOverridesRequest):
     current = rm.get_current_state(session_id)
     if current.value not in (
         "preprocessed",
+        "matching_configured",
         "deterministic_complete",
         "deterministic_review_complete",
         "probabilistic_complete",
@@ -307,5 +350,6 @@ def apply_vendor_overrides(session_id: str, body: VendorOverridesRequest):
             detail="clean_data not available. Run preprocessing first.",
         )
 
-    _apply_vendor_overrides(clean_data, overrides)
+    column_map = runtime.get("config", {}).get("column_map")
+    _apply_vendor_overrides(clean_data, overrides, column_map)
     return {"status": "ok", "applied_count": len(overrides)}

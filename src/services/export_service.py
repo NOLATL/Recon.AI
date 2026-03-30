@@ -31,6 +31,7 @@ Source layer detection:
 """
 
 import hashlib
+import json
 import os
 import tempfile
 from collections import defaultdict
@@ -891,6 +892,7 @@ def run_export(
     session_id:       str,
     manual_overrides: Optional[Dict[str, List[str]]] = None,  # {gl_id: [sub_id, ...]}
     manual_rejected:  Optional[List[dict]] = None,            # [{match_id, record_ids_A, record_ids_B}]
+    matching_config:  Optional[dict] = None,                  # runtime["config"]["matching_config"]
     export_dir:       Optional[str] = None,
 ) -> ExportManifest:
     """
@@ -911,6 +913,13 @@ def run_export(
 
     # Accepted probabilistic subset.
     prob_accepted = [m for m in prob_matches if m.get("user_status") == "accepted"]
+
+    # -- 0. recon_criteria.json ────────────────────────────────────────────
+    criteria_payload = matching_config or {}
+    criteria_content = json.dumps(criteria_payload, indent=2, default=str).encode("utf-8")
+    manifest.files.append(
+        _write_file(os.path.join(export_dir, "recon_criteria.json"), criteria_content)
+    )
 
     # -- 1. uploaded_gl.csv ────────────────────────────────────────────────
     gl_raw = raw_data.get("gl") if raw_data.get("gl") is not None else pd.DataFrame()

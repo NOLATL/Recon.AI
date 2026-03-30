@@ -35,6 +35,7 @@ const EXPORT_ARTIFACTS = [
   { id: 'rejected',   label: 'Rejected Matches',                    group: 'data' as const },
   { id: 'log',        label: 'Process Log',                         group: 'data' as const },
   { id: 'pdf',        label: 'Executive Summary PDF',               group: 'narrative' as const },
+  { id: 'criteria',  label: 'Reconciliation Criteria (JSON)',       group: 'config' as const },
 ] as const
 
 // Maps each artifact ID to the filenames it produces in the export manifest.
@@ -50,6 +51,7 @@ const ARTIFACT_FILES: Record<string, string[]> = {
   rejected:   ['rejected_matches.csv'],
   log:        ['process_log_run.csv', 'process_log_steps.csv', 'process_log_ai.csv'],
   pdf:        ['reconciliation_report.pdf'],
+  criteria:   ['recon_criteria.json'],
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -178,6 +180,24 @@ export function Export() {
               <p className="mb-2 text-sm font-medium text-[#1a1a1a]">Narrative</p>
               <ul className="space-y-2">
                 {EXPORT_ARTIFACTS.filter(a => a.group === 'narrative').map(artifact => (
+                  <li key={artifact.id} className="flex items-center gap-3">
+                    <Checkbox
+                      id={artifact.id}
+                      checked={selectedArtifacts.has(artifact.id)}
+                      onCheckedChange={() => toggleArtifact(artifact.id)}
+                      aria-label={`Include ${artifact.label}`}
+                    />
+                    <label htmlFor={artifact.id} className="cursor-pointer text-sm text-[#1a1a1a]">
+                      {artifact.label}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-medium text-[#1a1a1a]">Configuration</p>
+              <ul className="space-y-2">
+                {EXPORT_ARTIFACTS.filter(a => a.group === 'config').map(artifact => (
                   <li key={artifact.id} className="flex items-center gap-3">
                     <Checkbox
                       id={artifact.id}

@@ -110,6 +110,10 @@ export interface PreprocessingResponse {
   vendor_normalization_map: Array<Record<string, unknown>>
   unmatched_sub_vendors: string[]
   unmatched_sub_normalized: Record<string, string>
+  gl_normalized_vendor_row_distribution: Record<string, number>
+  gl_normalized_vendor_amt_distribution: Record<string, number>
+  sl_normalized_vendor_row_distribution: Record<string, number>
+  sl_normalized_vendor_amt_distribution: Record<string, number>
   snapshot: SnapshotInfo
 }
 
@@ -411,6 +415,110 @@ export function getExportZipUrl(sessionId: string, filenames: string[]): string 
 }
 
 // ---------------------------------------------------------------------------
+// Column Mapping (Phase 1.5 — between files_loaded and profiled)
+// ---------------------------------------------------------------------------
+
+export type ColumnRole = 'id' | 'vendor' | 'amount' | 'date' | 'entity' | 'currency' | 'ignore'
+
+export interface ColumnSuggestion {
+  column_name: string
+  detected_role: ColumnRole | null
+  confidence: number
+  sample_values: string[]
+  data_type: string
+}
+
+export interface AnalyzeColumnsResponse {
+  side_a_label: string
+  side_b_label: string
+  side_a_suggestions: ColumnSuggestion[]
+  side_b_suggestions: ColumnSuggestion[]
+  analysis_narrative: string
+}
+
+export type SideColumnMap = Partial<Record<ColumnRole, string>>
+
+export interface ConfirmColumnMappingRequest {
+  column_map: {
+    side_a_label: string
+    side_b_label: string
+    side_a: SideColumnMap
+    side_b: SideColumnMap
+  }
+}
+
+export function analyzeColumns(sessionId: string): Promise<AnalyzeColumnsResponse> {
+  return apiRequest<AnalyzeColumnsResponse>(
+    `/reconciliation/${sessionId}/analyze-columns`,
+    { method: 'POST', timeoutMs: 60_000 }
+  )
+}
+
+export function confirmColumnMapping(
+  sessionId: string,
+  body: ConfirmColumnMappingRequest
+): Promise<{ session_id: string; state: string }> {
+  return apiRequest(
+    `/reconciliation/${sessionId}/confirm-columns`,
+    { method: 'POST', body, timeoutMs: 15_000 }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Matching Config (Phase 3.5 — between preprocessed and deterministic)
+// ---------------------------------------------------------------------------
+
+export interface DeterministicScenarioConfig {
+  scenario_id: number
+  description: string
+  match_fields: string[]
+  date_tolerance_days: number | null
+  amount_tolerance_abs: number | null
+  amount_tolerance_pct: number | null
+  confidence_score: number
+}
+
+export interface ProbabilisticConfig {
+  weights: Record<string, number>
+  threshold: number
+  date_tolerance_days: number
+  amount_pct_tolerance: number
+  amount_abs_tolerance: number
+}
+
+export interface SuggestMatchingConfigResponse {
+  deterministic_scenarios: DeterministicScenarioConfig[]
+  probabilistic: ProbabilisticConfig
+  rationale: string
+}
+
+export function suggestMatchingConfig(sessionId: string): Promise<SuggestMatchingConfigResponse> {
+  return apiRequest<SuggestMatchingConfigResponse>(
+    `/reconciliation/${sessionId}/suggest-matching-config`,
+    { method: 'POST', timeoutMs: 60_000 }
+  )
+}
+
+export function confirmMatchingConfig(
+  sessionId: string,
+  body: { deterministic: DeterministicScenarioConfig[]; probabilistic: ProbabilisticConfig }
+): Promise<{ session_id: string; state: string }> {
+  return apiRequest(
+    `/reconciliation/${sessionId}/confirm-matching-config`,
+    { method: 'POST', body, timeoutMs: 15_000 }
+  )
+}
+
+export function getMatchingConfig(sessionId: string): Promise<{
+  matching_config: {
+    deterministic?: DeterministicScenarioConfig[]
+    probabilistic?: ProbabilisticConfig
+  }
+}> {
+  return apiRequest(`/reconciliation/${sessionId}/matching-config`, { timeoutMs: 10_000 })
+}
+
+// ---------------------------------------------------------------------------
 // Adapters for existing UI (summary, unmatched, file profile display)
 // ---------------------------------------------------------------------------
 
@@ -444,6 +552,9 @@ export interface FileProfile {
   date_to: string
   total_amount: number
   column_stats: ColumnStat[]
+  vendor_row_distribution: Record<string, number>
+  vendor_amount_distribution: Record<string, number>
+  daily_amount_distribution: Record<string, number>
 }
 
 /** Map backend ProfilingResponse.metrics.files to FileProfile for GL/subledger. */
@@ -510,6 +621,9 @@ export function metricsToFileProfile(
     date_to: (dr && "max" in dr ? dr.max : null) ?? "",
     total_amount: (nd && "sum" in nd ? nd.sum : null) ?? 0,
     column_stats,
+    vendor_row_distribution: (fRec.vendor_row_distribution as Record<string, number>) ?? {},
+    vendor_amount_distribution: (fRec.vendor_amount_distribution as Record<string, number>) ?? {},
+    daily_amount_distribution: (fRec.daily_amount_distribution as Record<string, number>) ?? {},
   }
 }
 
@@ -566,4 +680,45 @@ export function consolidationToUnmatched(res: FinalConsolidationResponse): Unmat
     ...glRows.map(toRecord),
     ...subRows.map(toRecord),
   ]
+}
+
+// ---------------------------------------------------------------------------
+// Chat
+// ---------------------------------------------------------------------------
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface MatchingConfigUpdate {
+  deterministic?: DeterministicScenarioConfig[]
+  probabilistic?: ProbabilisticConfig
+}
+
+export interface ChatResponse {
+  session_id: string
+  reply: string
+  rich_content?: unknown
+  config_update?: MatchingConfigUpdate | null
+}
+
+export function chatMessage(
+  sessionId: string,
+  message: string,
+  history: ChatMessage[],
+  matchingContext?: { deterministic: DeterministicScenarioConfig[]; probabilistic: ProbabilisticConfig } | null
+): Promise<ChatResponse> {
+  return apiRequest<ChatResponse>(
+    `/reconciliation/${sessionId}/chat`,
+    {
+      method: 'POST',
+      body: {
+        message,
+        conversation_history: history,
+        matching_context: matchingContext ?? null,
+      },
+      timeoutMs: 30_000,
+    }
+  )
 }

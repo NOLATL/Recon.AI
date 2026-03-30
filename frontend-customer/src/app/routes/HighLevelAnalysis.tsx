@@ -1,4 +1,4 @@
-import { Fragment, useState, useMemo, useEffect, useCallback } from 'react'
+import React, { Fragment, useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   flexRender,
@@ -30,8 +30,10 @@ import {
 import {
   RECON_SESSION_ID_KEY,
   getConsolidation,
+  getMatchingConfig,
   getSummaryNarrative,
   type FinalConsolidationResponse,
+  type ProbabilisticConfig,
 } from '@/api/endpoints'
 
 // White card styling (matches Load & Clean Data page)
@@ -73,6 +75,22 @@ export interface MatchRow {
   confidence: number
   status: MatchStatus
   reasoning_narrative?: string
+  /** Deterministic: scenario number (1, 2, 3 …) */
+  scenario_id?: number
+  /** Deterministic: human-readable scenario description */
+  scenario_description?: string
+  /** Deterministic: field roles used in this scenario e.g. ['vendor','amount','date'] */
+  match_fields?: string[]
+  /** Deterministic: date tolerance in days (0 = exact) */
+  date_tolerance_days?: number | null
+  /** Deterministic: absolute amount tolerance */
+  amount_tolerance_abs?: number | null
+  /** Deterministic: percentage amount tolerance (0–1) */
+  amount_tolerance_pct?: number | null
+  /** Probabilistic: per-field similarity scores, e.g. {vendor: 0.95, amount: 1.0, date: 0.73} */
+  component_scores?: Record<string, number>
+  /** Full display label including scenario e.g. "Deterministic (S1)" */
+  display_method: string
   gl_ref?: string
   sl_ref?: string
   /** All GL records in this match (one-to-many or many-to-one) */
@@ -132,9 +150,19 @@ function matchesToRows(
       sl_date:    _field(subRec, 'transaction_date', 'date'),
       sl_amount:  slAmount,
       match_method: matchMethod,
+      display_method: matchMethod === 'Deterministic' && m.scenario_id
+        ? `Deterministic (S${m.scenario_id})`
+        : matchMethod,
       confidence,
       status: 'Accepted',
-      reasoning_narrative: layer === 'ai' ? String(m.reasoning_narrative ?? '') || undefined : undefined,
+      reasoning_narrative:  layer === 'ai'            ? String(m.reasoning_narrative ?? '') || undefined : undefined,
+      scenario_id:          layer === 'deterministic' ? (Number(m.scenario_id) || undefined) : undefined,
+      scenario_description: layer === 'deterministic' ? String(m.scenario_description ?? '') || undefined : undefined,
+      match_fields:         layer === 'deterministic' ? (m.match_fields as string[] | undefined) : undefined,
+      date_tolerance_days:  layer === 'deterministic' ? (m.date_tolerance_days as number | null | undefined) : undefined,
+      amount_tolerance_abs: layer === 'deterministic' ? (m.amount_tolerance_abs as number | null | undefined) : undefined,
+      amount_tolerance_pct: layer === 'deterministic' ? (m.amount_tolerance_pct as number | null | undefined) : undefined,
+      component_scores:     layer === 'probabilistic' ? (m.component_scores as Record<string, number> | undefined) : undefined,
       gl_ref:  _field(glRec, 'gl_id', 'ref'),
       sl_ref:  _field(subRec, 'subledger_id', 'ref'),
       gl_records: glRecords,
@@ -163,6 +191,30 @@ const defaultFilters: FiltersState = {
   dateTo: '',
 }
 
+/** Build a probabilistic description from confirmed weights. */
+function buildProbDescription(weights: Record<string, number>): string {
+  const entries = Object.entries(weights)
+  if (entries.length === 0) return 'Probabilistic weighted similarity match'
+  const parts = entries.map(([k, v]) => `${k.charAt(0).toUpperCase() + k.slice(1)} ${Math.round(v * 100)}%`)
+  const list =
+    parts.length === 1
+      ? parts[0]
+      : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1]
+  return `Weighted similarity match — ${list}`
+}
+
+/** Build a human-readable description from actual match_fields and tolerances. */
+function buildDetDescription(matchFields: string[], dateTol?: number | null): string {
+  const roles = matchFields.length > 0 ? matchFields : ['vendor', 'amount', 'date', 'entity']
+  const labels = roles.map(r => r.charAt(0).toUpperCase() + r.slice(1))
+  const fieldList =
+    labels.length === 1
+      ? labels[0]
+      : labels.slice(0, -1).join(', ') + ' and ' + labels[labels.length - 1]
+  if (dateTol && dateTol > 0) return `Match on ${fieldList} within ±${dateTol}-day date window`
+  return `Exact match on ${fieldList}`
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function HighLevelAnalysis() {
@@ -171,6 +223,7 @@ export function HighLevelAnalysis() {
   const [expanded, setExpanded] = useState<ExpandedState>({})
   const [matches, setMatches] = useState<MatchRow[]>([])
   const [consolidation, setConsolidation] = useState<FinalConsolidationResponse | null>(null)
+  const [probConfig, setProbConfig] = useState<ProbabilisticConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -181,9 +234,15 @@ export function HighLevelAnalysis() {
       setLoading(false)
       return
     }
-    getConsolidation(sessionId)
-      .then((res) => {
+    Promise.all([
+      getConsolidation(sessionId),
+      getMatchingConfig(sessionId).catch(() => null),
+    ])
+      .then(([res, configRes]) => {
         setConsolidation(res)
+        if (configRes?.matching_config?.probabilistic) {
+          setProbConfig(configRes.matching_config.probabilistic)
+        }
         const glById = new Map(
           (res.gl_records as Record<string, unknown>[]).map(r => [String(r.gl_id ?? ''), r])
         )
@@ -281,7 +340,7 @@ export function HighLevelAnalysis() {
       if (filters.confidenceMax !== '' && confPct > Number(filters.confidenceMax)) return false
       if (filters.amountMin !== '' && row.gl_amount < Number(filters.amountMin)) return false
       if (filters.amountMax !== '' && row.gl_amount > Number(filters.amountMax)) return false
-      if (filters.matchMethod !== 'all' && row.match_method !== filters.matchMethod) return false
+      if (filters.matchMethod !== 'all' && row.display_method !== filters.matchMethod) return false
       if (filters.dateFrom && row.gl_date < filters.dateFrom) return false
       if (filters.dateTo && row.gl_date > filters.dateTo) return false
       return true
@@ -346,30 +405,141 @@ export function HighLevelAnalysis() {
           {
             accessorKey: 'match_method',
             header: 'Method',
-            size: 110,
+            size: 130,
             cell: ({ row }) => {
               const m = row.original
               const glN = m.gl_records.length
               const slN = m.sl_records.length
               const groupHint = (glN > 1 || slN > 1) ? ` · ${glN}×${slN}` : ''
-              return `${m.match_method}${groupHint}`
+              const scenarioLabel = m.match_method === 'Deterministic' && m.scenario_id
+                ? ` (S${m.scenario_id})`
+                : ''
+              return `${m.match_method}${scenarioLabel}${groupHint}`
             },
           },
           {
             accessorKey: 'confidence',
             header: 'Conf %',
-            size: 70,
+            size: 80,
             cell: ({ row }) => {
-              const pct = (row.original.confidence * 100).toFixed(0) + '%'
-              const narrative = row.original.reasoning_narrative
-              if (!narrative) return pct
+              const m   = row.original
+              const pct = (m.confidence * 100).toFixed(0) + '%'
+
+              // Build tooltip content based on match method
+              let tooltipContent: React.ReactNode = null
+
+              if (m.match_method === 'Deterministic') {
+                const matchFields = m.match_fields ?? []
+                const dateTol = m.date_tolerance_days
+                const amtAbs  = m.amount_tolerance_abs
+                const amtPct  = m.amount_tolerance_pct
+
+                const fieldRows: { label: string; gl: string; sl: string }[] = []
+                // Fall back to showing all standard fields when match_fields is not stored (legacy sessions)
+                const rolesForTooltip = matchFields.length > 0
+                  ? matchFields
+                  : ['vendor', 'amount', 'date', 'entity']
+                for (const role of rolesForTooltip) {
+                  if (role === 'vendor')   fieldRows.push({ label: 'Vendor', gl: m.gl_vendor, sl: m.sl_vendor })
+                  if (role === 'amount')   fieldRows.push({ label: 'Amount', gl: m.gl_amount.toLocaleString(undefined, { minimumFractionDigits: 2, style: 'currency', currency: 'USD' }), sl: m.sl_amount.toLocaleString(undefined, { minimumFractionDigits: 2, style: 'currency', currency: 'USD' }) })
+                  if (role === 'date')     fieldRows.push({ label: 'Date',   gl: m.gl_date,   sl: m.sl_date })
+                  if (role === 'entity')   fieldRows.push({ label: 'Entity', gl: m.gl_entity, sl: m.sl_entity })
+                }
+
+                tooltipContent = (
+                  <div>
+                    <p className="font-semibold mb-1.5 text-[#4ade80]">{buildDetDescription(matchFields, dateTol)}</p>
+                    {dateTol != null && dateTol > 0 && (
+                      <p className="text-gray-400 text-[10px] mb-1">Date tolerance: ±{dateTol} days</p>
+                    )}
+                    {((amtAbs != null && amtAbs > 0) || (amtPct != null && amtPct > 0)) && (
+                      <p className="text-gray-400 text-[10px] mb-1">
+                        Amount tolerance:{amtAbs ? ` ±$${amtAbs}` : ''}{amtPct ? ` or ±${(amtPct * 100).toFixed(1)}%` : ''}
+                      </p>
+                    )}
+                    {fieldRows.length > 0 && (
+                      <>
+                        <div className="flex gap-2 text-gray-400 pb-0.5 mt-1">
+                          <span className="w-14 shrink-0">Field</span>
+                          <span className="flex-1">GL</span>
+                          <span className="flex-1">Subledger</span>
+                        </div>
+                        {fieldRows.map((f) => (
+                          <div key={f.label} className="flex gap-2 py-0.5">
+                            <span className="w-14 shrink-0 text-gray-400">{f.label}</span>
+                            <span className="flex-1 font-mono truncate">{f.gl || '—'}</span>
+                            <span className="flex-1 font-mono truncate">{f.sl || '—'}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )
+              } else if (m.match_method === 'Probabilistic') {
+                const rawScores = m.component_scores ?? {}
+                const weights = probConfig?.weights ?? {}
+                const probRows = Object.entries(rawScores).map(([k, v]) => {
+                  const role = k.replace(/_similarity$/, '')
+                  const sim  = Number(v)
+                  const weight = weights[role]
+                  const gl = role === 'vendor' ? m.gl_vendor
+                    : role === 'amount' ? m.gl_amount.toLocaleString(undefined, { minimumFractionDigits: 2, style: 'currency', currency: 'USD' })
+                    : role === 'date'   ? m.gl_date
+                    : role === 'entity' ? m.gl_entity
+                    : ''
+                  const sl = role === 'vendor' ? m.sl_vendor
+                    : role === 'amount' ? m.sl_amount.toLocaleString(undefined, { minimumFractionDigits: 2, style: 'currency', currency: 'USD' })
+                    : role === 'date'   ? m.sl_date
+                    : role === 'entity' ? m.sl_entity
+                    : ''
+                  return { role, label: role.charAt(0).toUpperCase() + role.slice(1), gl, sl, sim, weight }
+                })
+                tooltipContent = (
+                  <div>
+                    <p className="font-semibold mb-2 text-[#60a5fa]">
+                      {buildProbDescription(weights)}
+                    </p>
+                    {/* header row */}
+                    <div className="flex gap-1.5 text-gray-400 pb-0.5 text-[10px] uppercase tracking-wide">
+                      <span className="w-14 shrink-0">Field</span>
+                      <span className="flex-1">GL</span>
+                      <span className="flex-1">Subledger</span>
+                      <span className="w-10 text-right">Sim</span>
+                    </div>
+                    {probRows.map(({ label, gl, sl, sim, weight }) => (
+                      <div key={label} className="flex gap-1.5 py-0.5 items-baseline">
+                        <span className="w-14 shrink-0 text-gray-400">{label}</span>
+                        <span className="flex-1 font-mono truncate">{gl || '—'}</span>
+                        <span className="flex-1 font-mono truncate">{sl || '—'}</span>
+                        <span className="w-10 text-right tabular-nums font-mono">
+                          {(sim * 100).toFixed(0)}%
+                          {weight != null && (
+                            <span className="text-gray-500 text-[10px]"> ×{Math.round(weight * 100)}%</span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between gap-4 pt-1.5 mt-1 border-t border-gray-600">
+                      <span className="text-gray-400">Final score</span>
+                      <span className="tabular-nums font-mono font-semibold">{pct}</span>
+                    </div>
+                  </div>
+                )
+              } else if (m.match_method === 'AI' && m.reasoning_narrative) {
+                tooltipContent = <p>{m.reasoning_narrative}</p>
+              }
+
+              const iconColor =
+                m.match_method === 'Deterministic' ? '#16a34a' :
+                m.match_method === 'Probabilistic' ? '#2563eb' : '#7c3aed'
+
               return (
                 <span className="inline-flex items-center gap-1">
                   {pct}
                   <span className="relative group cursor-default">
-                    <HelpCircle className="size-3.5 text-[#7c3aed]" aria-label="AI reasoning" />
-                    <span className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-64 rounded-md bg-[#1a1a1a] px-3 py-2 text-xs text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-normal">
-                      {narrative}
+                    <HelpCircle className="size-3.5" style={{ color: iconColor }} aria-label="Match details" />
+                    <span className="pointer-events-none absolute top-full right-0 mt-1.5 w-80 rounded-md bg-[#1a1a1a] px-3 py-2 text-xs text-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-normal">
+                      {tooltipContent}
                     </span>
                   </span>
                 </span>
@@ -398,7 +568,7 @@ export function HighLevelAnalysis() {
         ],
       },
     ],
-    []
+    [probConfig]
   )
 
   const table = useReactTable({
@@ -433,6 +603,8 @@ export function HighLevelAnalysis() {
           sl_records: r.sl_records,
         })))
       )
+      // Mark Matched Analysis as reviewed — unlocks Unmatched Analysis in sidebar
+      localStorage.setItem(`recon-${sessionId}-hla-done`, '1')
     }
     navigate('/detailed-analysis')
   }
@@ -639,9 +811,11 @@ export function HighLevelAnalysis() {
                 onChange={(e) => setFilters(f => ({ ...f, matchMethod: e.target.value }))}
                 className="h-8 w-full min-w-0 rounded-md border border-gray-200 bg-white px-2 text-sm text-[#1a1a1a] shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <option value="all">All</option>
-                <option value="Deterministic">Deterministic</option>
-                <option value="Probabilistic">Probabilistic</option>
-                <option value="AI">AI</option>
+                {Array.from(new Set(matches.map(m => m.display_method)))
+                  .sort()
+                  .map(method => (
+                    <option key={method} value={method}>{method}</option>
+                  ))}
               </select>
             </div>
             <div className="flex flex-col gap-1 min-w-0">

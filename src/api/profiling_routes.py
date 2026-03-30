@@ -60,6 +60,9 @@ def _build_metrics_schema(result) -> ProfilingMetrics:
             },
             entity_distribution=fr.entity_distribution,
             column_profiles=fr.column_profiles,
+            vendor_row_distribution=fr.vendor_row_distribution,
+            vendor_amount_distribution=fr.vendor_amount_distribution,
+            daily_amount_distribution=fr.daily_amount_distribution,
         )
 
     return ProfilingMetrics(
@@ -78,9 +81,10 @@ def get_profile(session_id: str):
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
     current = rm.get_current_state(session_id)
-    if current.value not in ("profiled", "preprocessed", "deterministic_complete",
-                            "deterministic_review_complete", "probabilistic_complete",
-                            "probabilistic_review_complete", "ai_suggested", "ai_review_complete",
+    if current.value not in ("profiled", "preprocessed", "matching_configured",
+                            "deterministic_complete", "deterministic_review_complete",
+                            "probabilistic_complete", "probabilistic_review_complete",
+                            "ai_suggested", "ai_review_complete",
                             "final_consolidated", "finalized"):
         raise HTTPException(
             status_code=409,
@@ -143,11 +147,11 @@ def run_profile(session_id: str):
         )
 
     # --- Guard: correct pre-condition state ---
-    if current != ReconciliationState.FILES_LOADED:
+    if current != ReconciliationState.COLUMN_MAPPING_COMPLETE:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Profiling requires state 'files_loaded'. "
+                f"Profiling requires state 'column_mapping_complete'. "
                 f"Current state is '{current.value}'."
             ),
         )
@@ -155,7 +159,8 @@ def run_profile(session_id: str):
     # --- Compute metrics (pure, no side effects on runtime) ---
     runtime = rm.get_runtime(session_id)
     try:
-        result = run_profiling(runtime["raw_data"])
+        column_map = runtime.get("config", {}).get("column_map")
+        result = run_profiling(runtime["raw_data"], column_map=column_map)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

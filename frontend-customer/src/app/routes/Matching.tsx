@@ -36,9 +36,8 @@ const PHASES = [
   { id: 'ai', label: 'AI Matching' },
 ] as const
 
-/** States where the pipeline is fully complete. */
+/** States where the pipeline is fully complete (consolidation done). */
 const TERMINAL_STATES = new Set([
-  'ai_review_complete',
   'final_consolidated',
   'finalized',
 ])
@@ -257,6 +256,10 @@ export function Matching() {
           nextStatuses[0] = 'complete'
           nextStatuses[1] = 'complete'
           nextStatuses[2] = 'complete'
+        } else if (s === 'ai_review_complete') {
+          nextStatuses[0] = 'complete'
+          nextStatuses[1] = 'complete'
+          nextStatuses[2] = 'complete'
         } else if (s === 'ai_suggested' || s === 'probabilistic_review_complete') {
           nextStatuses[0] = 'complete'
           nextStatuses[1] = 'complete'
@@ -291,8 +294,7 @@ export function Matching() {
 
   const allComplete =
     currentState === 'finalized' ||
-    currentState === 'final_consolidated' ||
-    currentState === 'ai_review_complete'
+    currentState === 'final_consolidated'
   const totalProcessed = recordCounts.reduce((a, b) => a + b, 0)
   const totalAmount = amountsByPhase.reduce((a, b) => a + b, 0)
   const currentPhaseIndex = phaseStatuses.findIndex((s) => s === 'running')

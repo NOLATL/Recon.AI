@@ -135,10 +135,11 @@ class TestStateManagerTransition:
         sm = StateManager(runtime)
 
         sm.transition(ReconciliationState.FILES_LOADED)
+        sm.transition(ReconciliationState.COLUMN_MAPPING_COMPLETE)
         sm.transition(ReconciliationState.PROFILED)
         sm.transition(ReconciliationState.PREPROCESSED)
 
-        assert len(list_snapshots(runtime)) == 3
+        assert len(list_snapshots(runtime)) == 4
 
     def test_snapshot_integrity_hash_present(self):
         runtime = _make_runtime()
@@ -229,8 +230,10 @@ class TestRuntimeManager:
     def test_assert_not_in_review_via_manager(self):
         session_id = rm.create_session()
         rm.advance_state(session_id, ReconciliationState.FILES_LOADED)
+        rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
         rm.advance_state(session_id, ReconciliationState.PROFILED)
         rm.advance_state(session_id, ReconciliationState.PREPROCESSED)
+        rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
         rm.advance_state(session_id, ReconciliationState.DETERMINISTIC_COMPLETE)
 
         with pytest.raises(ReviewPhaseViolation):

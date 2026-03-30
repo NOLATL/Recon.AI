@@ -12,7 +12,7 @@ Tests every explicit requirement:
   - rejected_count present in response
   - Snapshot key == 'probabilistic_complete' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 7 total snapshots after probabilistic review
+  - 9 total snapshots after probabilistic review
 
   [Accept decision]
   - Accepted match: user_status changes to "accepted" in probabilistic bucket
@@ -161,10 +161,17 @@ def _prob_review(client, session_id, decisions: list):
 
 def _advance_to_probabilistic_complete(client, session_id):
     """Run the full pipeline to PROBABILISTIC_COMPLETE."""
+    r = _upload(client, session_id)
+    assert r.status_code == 200, f"upload failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     for step, fn in [
-        ("upload",      lambda: _upload(client, session_id)),
         ("profile",     lambda: _profile(client, session_id)),
         ("preprocess",  lambda: _preprocess(client, session_id)),
+    ]:
+        r = fn()
+        assert r.status_code == 200, f"{step} failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
+    for step, fn in [
         ("deterministic", lambda: _deterministic(client, session_id)),
         ("det_review",  lambda: _det_review(client, session_id)),
         ("probabilistic", lambda: _probabilistic(client, session_id)),
@@ -229,10 +236,10 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_seven_snapshots_after_review(self, client, session_id):
-        """Six prior transitions + probabilistic_review = 7 snapshots total."""
+        """Eight prior transitions + probabilistic_review = 9 snapshots total."""
         _advance_to_probabilistic_complete(client, session_id)
         _prob_review(client, session_id, [])
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 7
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 9
 
 
 # ===========================================================================

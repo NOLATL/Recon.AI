@@ -136,15 +136,17 @@ class NormalizationEntry:
     match_source: str               # "preprocessing" | "nlp" | "ai"
     similarity_score: Optional[float]       # 0.0–1.0, nlp tier only
     ai_confidence_score: Optional[float]    # placeholder, ai tier only
+    vendor_normalized_key: str = ""  # actual Vendor_Normalized written to the DataFrame
 
     def to_dict(self) -> dict:
         return {
-            "original_vendor":      self.original_vendor,
-            "normalized_vendor":    self.normalized_vendor,
-            "matched_to":           self.matched_to,
-            "match_source":         self.match_source,
-            "similarity_score":     self.similarity_score,
-            "ai_confidence_score":  self.ai_confidence_score,
+            "original_vendor":       self.original_vendor,
+            "normalized_vendor":     self.normalized_vendor,
+            "matched_to":            self.matched_to,
+            "match_source":          self.match_source,
+            "similarity_score":      self.similarity_score,
+            "ai_confidence_score":   self.ai_confidence_score,
+            "vendor_normalized_key": self.vendor_normalized_key,
         }
 
 
@@ -226,39 +228,52 @@ def run_normalization(
     nlp_threshold:  float = 0.90,
     alias_map:      Optional[Dict[str, str]] = None,
     alias_version:  str = DEFAULT_ALIAS_VERSION,
+    column_map:     Optional[Dict] = None,
 ) -> NormalizationResult:
     """
     Run the 3-tier vendor normalization pipeline.
 
     Args:
-        gl_df:          GL DataFrame — must contain a 'vendor_name' column.
-        sub_df:         Subledger DataFrame — must contain a 'vendor_name' column.
+        gl_df:          GL DataFrame — must contain the vendor column.
+        sub_df:         Subledger DataFrame — must contain the vendor column.
         nlp_threshold:  Minimum RapidFuzz similarity for a tier-2 match (0.0–1.0).
                         Compared as ``score >= nlp_threshold * 100`` where score is
                         the 0–100 value returned by rapidfuzz.
         alias_map:      Config-driven dict mapping known alias strings to canonical
                         names.  Applied BEFORE text normalization.
         alias_version:  Version tag for the alias configuration (for audit logging).
+        column_map:     Optional column role mapping from runtime config. When provided,
+                        the vendor column is resolved from column_map["side_a"]["vendor"]
+                        and column_map["side_b"]["vendor"] instead of the hardcoded
+                        "vendor_name" default.
 
     Returns:
         NormalizationResult — mapping entries + enriched GL/Sub DataFrames.
 
     Raises:
-        ValueError — if 'vendor_name' column is absent from either DataFrame.
+        ValueError — if the vendor column is absent from either DataFrame.
     """
     if alias_map is None:
         alias_map = {}
 
-    if "vendor_name" not in gl_df.columns:
-        raise ValueError("GL DataFrame is missing required 'vendor_name' column.")
-    if "vendor_name" not in sub_df.columns:
-        raise ValueError("Subledger DataFrame is missing required 'vendor_name' column.")
+    # Resolve vendor column names from column_map (or fall back to hardcoded defaults)
+    if column_map:
+        a_vendor_col = column_map.get("side_a", {}).get("vendor") or "vendor_name"
+        b_vendor_col = column_map.get("side_b", {}).get("vendor") or "vendor_name"
+    else:
+        a_vendor_col = "vendor_name"
+        b_vendor_col = "vendor_name"
+
+    if a_vendor_col not in gl_df.columns:
+        raise ValueError(f"GL DataFrame is missing required vendor column '{a_vendor_col}'.")
+    if b_vendor_col not in sub_df.columns:
+        raise ValueError(f"Subledger DataFrame is missing required vendor column '{b_vendor_col}'.")
 
     # -----------------------------------------------------------------------
     # Collect unique non-null vendor strings from each file
     # -----------------------------------------------------------------------
-    gl_unique:  List[str] = [v for v in gl_df["vendor_name"].dropna().unique().tolist()]
-    sub_unique: List[str] = [v for v in sub_df["vendor_name"].dropna().unique().tolist()]
+    gl_unique:  List[str] = [v for v in gl_df[a_vendor_col].dropna().unique().tolist()]
+    sub_unique: List[str] = [v for v in sub_df[b_vendor_col].dropna().unique().tolist()]
 
     # -----------------------------------------------------------------------
     # Tier 1 — apply text normalization to all vendors
@@ -283,12 +298,13 @@ def run_normalization(
         norm = gl_norm[orig]
         if norm in norm_to_sub_orig:
             entries.append(NormalizationEntry(
-                original_vendor=    orig,
-                normalized_vendor=  norm,
-                matched_to=         norm_to_sub_orig[norm],
-                match_source=       "preprocessing",
-                similarity_score=   None,
-                ai_confidence_score=None,
+                original_vendor=      orig,
+                normalized_vendor=    norm,
+                matched_to=           norm_to_sub_orig[norm],
+                match_source=         "preprocessing",
+                similarity_score=     None,
+                ai_confidence_score=  None,
+                vendor_normalized_key=norm,  # tier-1: GL and Sub share the same normalized form
             ))
         else:
             tier2_candidates.append(orig)
@@ -313,12 +329,13 @@ def run_normalization(
             if best is not None:
                 best_norm_sub, score, _ = best
                 entries.append(NormalizationEntry(
-                    original_vendor=    orig,
-                    normalized_vendor=  gl_norm[orig],
-                    matched_to=         norm_to_sub_orig.get(best_norm_sub),
-                    match_source=       "nlp",
-                    similarity_score=   round(score / 100.0, 4),
-                    ai_confidence_score=None,
+                    original_vendor=      orig,
+                    normalized_vendor=    gl_norm[orig],
+                    matched_to=           norm_to_sub_orig.get(best_norm_sub),
+                    match_source=         "nlp",
+                    similarity_score=     round(score / 100.0, 4),
+                    ai_confidence_score=  None,
+                    vendor_normalized_key=best_norm_sub,  # normalized Sub form shared by both sides
                 ))
             else:
                 tier3_candidates.append(orig)
@@ -361,22 +378,24 @@ def run_normalization(
 
         if best_sub is not None:
             entries.append(NormalizationEntry(
-                original_vendor=    orig,
-                normalized_vendor=  best_normalized,
-                matched_to=         best_sub,
-                match_source=       "ai",
-                similarity_score=   None,
-                ai_confidence_score=best_confidence,
+                original_vendor=      orig,
+                normalized_vendor=    best_normalized,
+                matched_to=           best_sub,
+                match_source=         "ai",
+                similarity_score=     None,
+                ai_confidence_score=  best_confidence,
+                vendor_normalized_key=sub_norm[best_sub],  # tier-1 normalized form of matched Sub
             ))
         else:
             # No confident AI match — record as unmatched with zero confidence
             entries.append(NormalizationEntry(
-                original_vendor=    orig,
-                normalized_vendor=  gl_norm[orig],
-                matched_to=         None,
-                match_source=       "ai",
-                similarity_score=   None,
-                ai_confidence_score=0.0,
+                original_vendor=      orig,
+                normalized_vendor=    gl_norm[orig],
+                matched_to=           None,
+                match_source=         "ai",
+                similarity_score=     None,
+                ai_confidence_score=  0.0,
+                vendor_normalized_key=gl_norm[orig],  # no match — use own normalized GL form
             ))
 
     # -----------------------------------------------------------------------
@@ -387,32 +406,25 @@ def run_normalization(
     tier3_count = sum(1 for e in entries if e.match_source == "ai")
 
     # -----------------------------------------------------------------------
-    # Build Vendor_Normalized lookup for GL
-    #
-    # For tier-1 and tier-2 matches: use the normalized form of the matched
-    # Subledger vendor.  This ensures GL and Sub share an identical key for
-    # the matched entity, enabling a direct equality join downstream.
-    # For tier-3: fall back to the normalized GL vendor form.
+    # Build Vendor_Normalized lookup for GL from the vendor_normalized_key
+    # already set on each entry.  This replaces the old conditional logic and
+    # ensures the DataFrame uses exactly the same key exposed to the frontend.
     # -----------------------------------------------------------------------
-    gl_vendor_normalized: Dict[str, str] = {}
-    for e in entries:
-        if e.matched_to and e.matched_to in sub_norm:
-            # canonical key = normalized form of the matched Sub vendor
-            gl_vendor_normalized[e.original_vendor] = sub_norm[e.matched_to]
-        else:
-            gl_vendor_normalized[e.original_vendor] = e.normalized_vendor
+    gl_vendor_normalized: Dict[str, str] = {
+        e.original_vendor: e.vendor_normalized_key for e in entries
+    }
 
     # -----------------------------------------------------------------------
     # Enrich DataFrames — preserve originals, add Vendor_Normalized column
     # -----------------------------------------------------------------------
     gl_out = gl_df.copy()
-    gl_out["Vendor_Normalized"] = gl_out["vendor_name"].map(
+    gl_out["Vendor_Normalized"] = gl_out[a_vendor_col].map(
         lambda v: gl_vendor_normalized.get(v, normalize_vendor(str(v), alias_map))
         if pd.notna(v) else None
     )
 
     sub_out = sub_df.copy()
-    sub_out["Vendor_Normalized"] = sub_out["vendor_name"].map(
+    sub_out["Vendor_Normalized"] = sub_out[b_vendor_col].map(
         lambda v: sub_norm.get(v, normalize_vendor(str(v), alias_map))
         if pd.notna(v) else None
     )

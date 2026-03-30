@@ -12,7 +12,7 @@ Tests every explicit requirement:
   - summary present in response with model_used and prompt_version
   - Snapshot key == 'probabilistic_review_complete' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 8 total snapshots after AI phase
+  - 10 total snapshots after AI phase
   - suggestions written to runtime["matching"]["ai_suggested"]
   - ai_suggested_meta written to runtime
 
@@ -174,16 +174,22 @@ def _ai(client, session_id):
 
 def _advance_to_prob_review_complete(client, session_id):
     """Run the full pipeline through Phase 5A."""
-    steps = [
-        ("upload",         lambda: _upload(client, session_id)),
+    r = _upload(client, session_id)
+    assert r.status_code == 200, f"upload failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
+    for step, fn in [
         ("profile",        lambda: _profile(client, session_id)),
         ("preprocess",     lambda: _preprocess(client, session_id)),
+    ]:
+        r = fn()
+        assert r.status_code == 200, f"{step} failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
+    for step, fn in [
         ("deterministic",  lambda: _deterministic(client, session_id)),
         ("det_review",     lambda: _det_review(client, session_id)),
         ("probabilistic",  lambda: _probabilistic(client, session_id)),
         ("prob_review",    lambda: _prob_review(client, session_id)),
-    ]
-    for step, fn in steps:
+    ]:
         r = fn()
         assert r.status_code == 200, f"{step} failed: {r.text}"
 
@@ -244,10 +250,10 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_eight_snapshots_after_ai(self, client, session_id):
-        """Seven prior transitions + AI = 8 snapshots."""
+        """Nine prior transitions + AI = 10 snapshots."""
         _advance_to_prob_review_complete(client, session_id)
         _ai(client, session_id)
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 8
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 10
 
     def test_suggestions_written_to_runtime(self, client, session_id):
         _advance_to_prob_review_complete(client, session_id)

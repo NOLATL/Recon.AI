@@ -413,9 +413,9 @@ class TestIllegalStateTransition:
         # Manually walk forward through states to reach a later one
         from src.core.state_machine import ReconciliationState as RS
         state_map = {
-            "profiled":               [RS.FILES_LOADED, RS.PROFILED],
-            "preprocessed":           [RS.FILES_LOADED, RS.PROFILED, RS.PREPROCESSED],
-            "deterministic_complete": [RS.FILES_LOADED, RS.PROFILED, RS.PREPROCESSED, RS.DETERMINISTIC_COMPLETE],
+            "profiled":               [RS.FILES_LOADED, RS.COLUMN_MAPPING_COMPLETE, RS.PROFILED],
+            "preprocessed":           [RS.FILES_LOADED, RS.COLUMN_MAPPING_COMPLETE, RS.PROFILED, RS.PREPROCESSED],
+            "deterministic_complete": [RS.FILES_LOADED, RS.COLUMN_MAPPING_COMPLETE, RS.PROFILED, RS.PREPROCESSED, RS.MATCHING_CONFIGURED, RS.DETERMINISTIC_COMPLETE],
         }
         for state in state_map[target_state]:
             rm.advance_state(sid, state)

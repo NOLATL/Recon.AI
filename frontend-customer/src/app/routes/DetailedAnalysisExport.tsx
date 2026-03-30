@@ -335,6 +335,8 @@ export function DetailedAnalysisExport() {
         if (linked.length > 0) glOverrides[glRow.id] = linked
       }
       await saveManualOverrides(sessionId, glOverrides)
+      // Mark Unmatched Analysis as reviewed — unlocks Export in sidebar
+      localStorage.setItem(`recon-${sessionId}-dla-done`, '1')
       navigate('/export')
     } catch (err) {
       setFinalizeError(err instanceof Error ? err.message : 'Failed to save overrides.')
@@ -385,7 +387,7 @@ export function DetailedAnalysisExport() {
             storeKey="gl-overrides"
             persistedValues={overrides}
             onSave={(rowId, v) => saveOverride(rowId, v, 'gl')}
-            placeholder="e.g. SUB-001, SUB-002"
+            placeholder="e.g. SUB0001, SUB0002"
           />
         ),
       },
@@ -435,7 +437,7 @@ export function DetailedAnalysisExport() {
             storeKey="sub-overrides"
             persistedValues={overrides}
             onSave={(rowId, v) => saveOverride(rowId, v, 'sub')}
-            placeholder="e.g. GL-001, GL-002"
+            placeholder="e.g. GL0001, GL0002"
           />
         ),
       },

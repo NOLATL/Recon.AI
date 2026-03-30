@@ -264,3 +264,15 @@ def write_export_meta(session_id: str, export_data: dict) -> None:
     """Store export metadata (file paths, hashes, timestamp)."""
     runtime = get_runtime(session_id)
     runtime["export"] = export_data
+
+
+def write_column_map(session_id: str, column_map: dict) -> None:
+    """Store the confirmed column role mapping into runtime config."""
+    runtime = get_runtime(session_id)
+    runtime["config"]["column_map"] = column_map
+
+
+def write_matching_config(session_id: str, matching_config: dict) -> None:
+    """Store the confirmed matching configuration (scenarios + weights) into runtime config."""
+    runtime = get_runtime(session_id)
+    runtime["config"]["matching_config"] = matching_config

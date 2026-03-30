@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Any
+from typing import Any, Dict, List
 from openai import OpenAI
 
 
@@ -71,3 +71,52 @@ class OpenAIClient:
             ]
         )
         return (response.choices[0].message.content or "").strip()
+
+    def generate_with_history(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> str:
+        """
+        Generate a reply given a full conversation history.
+
+        `messages` is a list of {"role": "user"|"assistant", "content": "..."} dicts.
+        The system prompt is prepended automatically.
+        """
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        response = self.client.chat.completions.create(
+            model=self.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            messages=full_messages,
+        )
+        return (response.choices[0].message.content or "").strip()
+
+    def generate_with_history_json(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> Dict[str, Any]:
+        """
+        Generate a structured JSON reply given a full conversation history.
+        Uses response_format json_object to guarantee valid JSON output.
+        `messages` is a list of {"role": "user"|"assistant", "content": "..."} dicts.
+        The system prompt is prepended automatically.
+        """
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        response = self.client.chat.completions.create(
+            model=self.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            messages=full_messages,
+        )
+        text = (response.choices[0].message.content or "").strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"reply": text, "config_update": None}

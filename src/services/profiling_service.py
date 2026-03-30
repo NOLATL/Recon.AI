@@ -96,23 +96,30 @@ class FileProfilingResult:
     date_ranges: Dict[str, DateRange]
     entity_distribution: Dict[str, int]
     column_profiles: Dict[str, Any]   # per-column stats used by Data Description table
+    # EDA chart distributions (populated when column_map is available)
+    vendor_row_distribution: Dict[str, int] = field(default_factory=dict)
+    vendor_amount_distribution: Dict[str, float] = field(default_factory=dict)
+    daily_amount_distribution: Dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "file_key":               self.file_key,
-            "row_count":              self.row_count,
-            "unique_vendor_count":    self.unique_vendor_count,
-            "null_counts":            self.null_counts,
-            "null_percentages":       self.null_percentages,
-            "duplicate_row_count":    self.duplicate_row_count,
-            "numeric_distributions":  {
+            "file_key":                   self.file_key,
+            "row_count":                  self.row_count,
+            "unique_vendor_count":        self.unique_vendor_count,
+            "null_counts":                self.null_counts,
+            "null_percentages":           self.null_percentages,
+            "duplicate_row_count":        self.duplicate_row_count,
+            "numeric_distributions":      {
                 k: v.to_dict() for k, v in self.numeric_distributions.items()
             },
-            "date_ranges":            {
+            "date_ranges":                {
                 k: v.to_dict() for k, v in self.date_ranges.items()
             },
-            "entity_distribution":    self.entity_distribution,
-            "column_profiles":        self.column_profiles,
+            "entity_distribution":        self.entity_distribution,
+            "column_profiles":            self.column_profiles,
+            "vendor_row_distribution":    self.vendor_row_distribution,
+            "vendor_amount_distribution": self.vendor_amount_distribution,
+            "daily_amount_distribution":  self.daily_amount_distribution,
         }
 
 
@@ -269,6 +276,56 @@ def _histogram_buckets_date(series: pd.Series, top_n: int = 8) -> List[Dict[str,
     return result
 
 
+def _vendor_row_distribution(df: pd.DataFrame, vendor_col: Optional[str], top_n: int = 15) -> Dict[str, int]:
+    """Return top-N vendors by row count."""
+    if not vendor_col or vendor_col not in df.columns:
+        return {}
+    try:
+        return df[vendor_col].value_counts().head(top_n).astype(int).to_dict()
+    except Exception:
+        return {}
+
+
+def _vendor_amount_distribution(
+    df: pd.DataFrame,
+    vendor_col: Optional[str],
+    amount_col: Optional[str],
+    top_n: int = 15,
+) -> Dict[str, float]:
+    """Return top-N vendors by total absolute amount."""
+    if not vendor_col or not amount_col:
+        return {}
+    if vendor_col not in df.columns or amount_col not in df.columns:
+        return {}
+    try:
+        amounts = pd.to_numeric(df[amount_col], errors="coerce")
+        temp = pd.DataFrame({"vendor": df[vendor_col], "amount": amounts}).dropna()
+        grouped = temp.groupby("vendor")["amount"].sum().abs()
+        return grouped.nlargest(top_n).apply(float).to_dict()
+    except Exception:
+        return {}
+
+
+def _daily_amount_distribution(
+    df: pd.DataFrame,
+    date_col: Optional[str],
+    amount_col: Optional[str],
+) -> Dict[str, float]:
+    """Return amount summed by calendar date (ISO date string), sorted chronologically."""
+    if not date_col or not amount_col:
+        return {}
+    if date_col not in df.columns or amount_col not in df.columns:
+        return {}
+    try:
+        dates = pd.to_datetime(df[date_col], errors="coerce").dt.date
+        amounts = pd.to_numeric(df[amount_col], errors="coerce")
+        temp = pd.DataFrame({"date": dates, "amount": amounts}).dropna()
+        daily = temp.groupby("date")["amount"].sum().sort_index()
+        return {str(d): float(v) for d, v in daily.items()}
+    except Exception:
+        return {}
+
+
 def _column_profiles(
     df: pd.DataFrame,
     file_key: str,
@@ -364,7 +421,11 @@ def _column_profiles(
 # Per-file profiler
 # ---------------------------------------------------------------------------
 
-def _profile_file(df: pd.DataFrame, file_key: str) -> FileProfilingResult:
+def _profile_file(
+    df: pd.DataFrame,
+    file_key: str,
+    column_map: Optional[Dict[str, Any]] = None,
+) -> FileProfilingResult:
     null_counts, null_pct = _null_metrics(df)
 
     numeric_dists: Dict[str, NumericDistribution] = {}
@@ -377,9 +438,17 @@ def _profile_file(df: pd.DataFrame, file_key: str) -> FileProfilingResult:
         if col in df.columns:
             date_ranges[col] = _date_range(df[col])
 
-    unique_vendor_count = (
-        int(df["vendor_name"].nunique()) if "vendor_name" in df.columns else 0
-    )
+    # Resolve column names from column_map (side_a = gl, side_b = subledger)
+    side_key = "side_a" if file_key == "gl" else ("side_b" if file_key == "subledger" else None)
+    side_map: Dict[str, Optional[str]] = {}
+    if column_map and side_key:
+        side_map = column_map.get(side_key, {}) or {}
+
+    vendor_col = side_map.get("vendor") or ("vendor_name" if "vendor_name" in df.columns else None)
+    amount_col = side_map.get("amount") or ("amount" if "amount" in df.columns else None)
+    date_col   = side_map.get("date")   or ("transaction_date" if "transaction_date" in df.columns else None)
+
+    unique_vendor_count = int(df[vendor_col].nunique()) if vendor_col and vendor_col in df.columns else 0
 
     col_profiles = _column_profiles(df, file_key, numeric_dists, date_ranges)
 
@@ -394,6 +463,9 @@ def _profile_file(df: pd.DataFrame, file_key: str) -> FileProfilingResult:
         date_ranges=date_ranges,
         entity_distribution=_entity_distribution(df, _ENTITY_COLUMN.get(file_key)),
         column_profiles=col_profiles,
+        vendor_row_distribution=_vendor_row_distribution(df, vendor_col),
+        vendor_amount_distribution=_vendor_amount_distribution(df, vendor_col, amount_col),
+        daily_amount_distribution=_daily_amount_distribution(df, date_col, amount_col),
     )
 
 
@@ -401,13 +473,18 @@ def _profile_file(df: pd.DataFrame, file_key: str) -> FileProfilingResult:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def run_profiling(raw_data: Dict[str, Any]) -> ProfilingResult:
+def run_profiling(
+    raw_data: Dict[str, Any],
+    column_map: Optional[Dict[str, Any]] = None,
+) -> ProfilingResult:
     """
     Profile all three DataFrames in raw_data.
 
     Args:
-        raw_data: runtime["raw_data"] — must contain 'gl', 'subledger',
-                  'chart_of_accounts' as non-None DataFrames.
+        raw_data:    runtime["raw_data"] — must contain 'gl', 'subledger',
+                     'chart_of_accounts' as non-None DataFrames.
+        column_map:  Optional runtime["config"]["column_map"] used to resolve
+                     vendor/amount/date column names for EDA chart distributions.
 
     Returns:
         ProfilingResult with per-file metrics and a cross-file summary.
@@ -421,7 +498,7 @@ def run_profiling(raw_data: Dict[str, Any]) -> ProfilingResult:
                 f"raw_data['{file_key}'] is not available. "
                 "Ensure Phase 1 (upload) completed successfully before profiling."
             )
-        file_results[file_key] = _profile_file(df, file_key)
+        file_results[file_key] = _profile_file(df, file_key, column_map=column_map)
 
     gl_n  = file_results["gl"].row_count
     sub_n = file_results["subledger"].row_count

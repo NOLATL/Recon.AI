@@ -12,8 +12,8 @@ Tests every explicit requirement:
   - normalization_summary present with correct counts
   - Snapshot key == 'profiled' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 3 total snapshots after preprocessing
-    (initialized→files_loaded, files_loaded→profiled, profiled→preprocessed)
+  - 4 total snapshots after preprocessing
+    (initialized→files_loaded, files_loaded→column_mapping_complete, column_mapping_complete→profiled, profiled→preprocessed)
   - vendor_normalization_map written to runtime
   - clean_data written to runtime with Vendor_Normalized column
   - preprocessing metadata written to runtime (threshold, alias_version, tier counts)
@@ -127,6 +127,7 @@ def _advance_to_profiled(client, session_id):
     """Upload + profile to reach the 'profiled' pre-condition."""
     r1 = _upload(client, session_id)
     assert r1.status_code == 200, f"Upload failed: {r1.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     r2 = _profile(client, session_id)
     assert r2.status_code == 200, f"Profile failed: {r2.text}"
 
@@ -178,10 +179,10 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_three_snapshots_after_preprocess(self, client, session_id):
-        """initialized→files_loaded, files_loaded→profiled, profiled→preprocessed."""
+        """initialized→files_loaded, files_loaded→column_mapping_complete, column_mapping_complete→profiled, profiled→preprocessed."""
         _advance_to_profiled(client, session_id)
         _preprocess(client, session_id)
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 3
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 4
 
     def test_vendor_normalization_map_written_to_runtime(self, client, session_id):
         _advance_to_profiled(client, session_id)

@@ -118,18 +118,29 @@ def run_probabilistic(session_id: str):
             detail="residual_pool not available. Ensure deterministic matching is complete.",
         )
 
-    # Resolve threshold and weights from config (fall back to service defaults)
-    threshold = config.get("threshold") or DEFAULT_THRESHOLD
-    raw_weights = config.get("weights") or {}
-    weights = {**DEFAULT_WEIGHTS, **raw_weights}   # user overrides win
+    # Resolve threshold and weights — matching_config.probabilistic takes priority,
+    # then legacy runtime config keys, then service defaults.
+    matching_prob_config = config.get("matching_config", {}).get("probabilistic") or {}
+    column_map  = config.get("column_map")
+    if matching_prob_config:
+        # Use AI-confirmed matching config
+        threshold = matching_prob_config.get("threshold", DEFAULT_THRESHOLD)
+        weights   = matching_prob_config.get("weights", DEFAULT_WEIGHTS)
+    else:
+        # Legacy fallback: runtime config keys
+        threshold   = config.get("threshold") or DEFAULT_THRESHOLD
+        raw_weights = config.get("weights") or {}
+        weights     = {**DEFAULT_WEIGHTS, **raw_weights}
 
     # --- Run matching pipeline (pure, no side effects) ---
     try:
         result = run_probabilistic_matching(
-            gl_pool=   gl_pool,
-            sub_pool=  sub_pool,
-            threshold= threshold,
-            weights=   weights,
+            gl_pool=     gl_pool,
+            sub_pool=    sub_pool,
+            threshold=   threshold,
+            weights=     weights,
+            column_map=  column_map,
+            prob_config= matching_prob_config if matching_prob_config else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

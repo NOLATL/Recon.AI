@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { LogoWithMatchedBackground } from '@/components/LogoWithMatchedBackground'
@@ -142,6 +142,18 @@ const DEMO_TOTAL_AMOUNT = 347043
 
 export function Landing() {
   const [activeStep, setActiveStep] = useState(0)
+  const [showHome, setShowHome] = useState(false)
+
+  useEffect(() => {
+    const el = document.getElementById('overview-steps')
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowHome(entry.isIntersecting),
+      { threshold: 0.05 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div
@@ -152,20 +164,31 @@ export function Landing() {
           Red shows through in rounded corners of charcoal (top) and white (bottom). */}
 
       {/* Header — fixed above both sections */}
-      <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-end px-6 lg:px-10 py-4 bg-[#333333]/95 backdrop-blur-md">
+      <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-6 lg:px-10 py-4 bg-[#333333]/95 backdrop-blur-md">
+        <div>
+          {showHome && (
+            <button
+              type="button"
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="text-sm font-medium text-white/70 hover:text-white transition-colors"
+            >
+              Home
+            </button>
+          )}
+        </div>
         <nav className="flex items-center gap-6">
-          <button
-            type="button"
+          <Link
+            to="/documentation"
             className="text-sm font-medium text-white/70 hover:text-white transition-colors"
           >
             Documentation
-          </button>
-          <a
-            href="#faq"
+          </Link>
+          <Link
+            to="/faq"
             className="text-sm font-medium text-white/70 hover:text-white transition-colors"
           >
             FAQ
-          </a>
+          </Link>
           <Button asChild size="default">
             <Link to="/load-files">Get Started</Link>
           </Button>

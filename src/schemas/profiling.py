@@ -22,16 +22,19 @@ class DateRangeSchema(BaseModel):
 
 
 class FileProfilingSummary(BaseModel):
-    file_key:              str
-    row_count:             int
-    unique_vendor_count:   int
-    null_counts:           Dict[str, int]
-    null_percentages:      Dict[str, float]
-    duplicate_row_count:   int
-    numeric_distributions: Dict[str, NumericDistributionSchema]
-    date_ranges:           Dict[str, DateRangeSchema]
-    entity_distribution:   Dict[str, int]
-    column_profiles:       Dict[str, Any]
+    file_key:                    str
+    row_count:                   int
+    unique_vendor_count:         int
+    null_counts:                 Dict[str, int]
+    null_percentages:            Dict[str, float]
+    duplicate_row_count:         int
+    numeric_distributions:       Dict[str, NumericDistributionSchema]
+    date_ranges:                 Dict[str, DateRangeSchema]
+    entity_distribution:         Dict[str, int]
+    column_profiles:             Dict[str, Any]
+    vendor_row_distribution:     Dict[str, int]   = {}
+    vendor_amount_distribution:  Dict[str, float] = {}
+    daily_amount_distribution:   Dict[str, float] = {}
 
 
 class CrossFileSummarySchema(BaseModel):

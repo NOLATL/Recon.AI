@@ -12,8 +12,8 @@ Tests every explicit requirement:
   - rejected_count present in response
   - Snapshot key == 'ai_suggested' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 9 total snapshots after AI review
-    (phases 0–6 = 8 snapshots, + ai_review = 9)
+  - 11 total snapshots after AI review
+    (phases 0–6 = 10 snapshots, + ai_review = 11)
 
   [Accept decision]
   - Accepted match: user_status changes to "accepted" in final bucket
@@ -172,17 +172,23 @@ def _ai_review(client, session_id, decisions=None):
 
 def _advance_to_ai_suggested(client, session_id):
     """Run the full pipeline through Phase 6 (ai_suggested state)."""
-    steps = [
-        ("upload",        lambda: _upload(client, session_id)),
+    r = _upload(client, session_id)
+    assert r.status_code == 200, f"upload failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
+    for step, fn in [
         ("profile",       lambda: _profile(client, session_id)),
         ("preprocess",    lambda: _preprocess(client, session_id)),
+    ]:
+        r = fn()
+        assert r.status_code == 200, f"{step} failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
+    for step, fn in [
         ("deterministic", lambda: _deterministic(client, session_id)),
         ("det_review",    lambda: _det_review(client, session_id)),
         ("probabilistic", lambda: _probabilistic(client, session_id)),
         ("prob_review",   lambda: _prob_review(client, session_id)),
         ("ai",            lambda: _ai(client, session_id)),
-    ]
-    for step, fn in steps:
+    ]:
         r = fn()
         assert r.status_code == 200, f"{step} failed: {r.text}"
 
@@ -243,10 +249,10 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_nine_snapshots_after_ai_review(self, client, session_id):
-        """Eight prior transitions + ai_review = 9 snapshots total."""
+        """Ten prior transitions + ai_review = 11 snapshots total."""
         _advance_to_ai_suggested(client, session_id)
         _ai_review(client, session_id, [])
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 9
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 11
 
 
 # ===========================================================================

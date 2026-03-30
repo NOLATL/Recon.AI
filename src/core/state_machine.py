@@ -15,8 +15,10 @@ from typing import Dict, List, Set
 class ReconciliationState(str, Enum):
     INITIALIZED = "initialized"
     FILES_LOADED = "files_loaded"
+    COLUMN_MAPPING_COMPLETE = "column_mapping_complete"
     PROFILED = "profiled"
     PREPROCESSED = "preprocessed"
+    MATCHING_CONFIGURED = "matching_configured"
     DETERMINISTIC_COMPLETE = "deterministic_complete"
     DETERMINISTIC_REVIEW_COMPLETE = "deterministic_review_complete"
     PROBABILISTIC_COMPLETE = "probabilistic_complete"
@@ -31,9 +33,11 @@ class ReconciliationState(str, Enum):
 # Any (from, to) pair not represented here is illegal.
 ALLOWED_TRANSITIONS: Dict[ReconciliationState, List[ReconciliationState]] = {
     ReconciliationState.INITIALIZED:                    [ReconciliationState.FILES_LOADED],
-    ReconciliationState.FILES_LOADED:                   [ReconciliationState.PROFILED],
+    ReconciliationState.FILES_LOADED:                   [ReconciliationState.COLUMN_MAPPING_COMPLETE],
+    ReconciliationState.COLUMN_MAPPING_COMPLETE:        [ReconciliationState.PROFILED],
     ReconciliationState.PROFILED:                       [ReconciliationState.PREPROCESSED],
-    ReconciliationState.PREPROCESSED:                   [ReconciliationState.DETERMINISTIC_COMPLETE],
+    ReconciliationState.PREPROCESSED:                   [ReconciliationState.MATCHING_CONFIGURED],
+    ReconciliationState.MATCHING_CONFIGURED:            [ReconciliationState.DETERMINISTIC_COMPLETE],
     ReconciliationState.DETERMINISTIC_COMPLETE:         [ReconciliationState.DETERMINISTIC_REVIEW_COMPLETE],
     ReconciliationState.DETERMINISTIC_REVIEW_COMPLETE:  [ReconciliationState.PROBABILISTIC_COMPLETE],
     ReconciliationState.PROBABILISTIC_COMPLETE:         [ReconciliationState.PROBABILISTIC_REVIEW_COMPLETE],

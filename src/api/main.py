@@ -23,6 +23,7 @@ from src.api.layer_routes import router as layer_router
 from src.api.final_consolidation_routes import router as consolidation_router
 from src.api.export_routes import router as export_router
 from src.api.override_routes import router as override_router
+from src.api.chat_routes import router as chat_router
 
 app = FastAPI(
     title="AI Reconciliation Engine",
@@ -99,6 +100,7 @@ app.include_router(layer_router)
 app.include_router(consolidation_router)
 app.include_router(export_router)
 app.include_router(override_router)
+app.include_router(chat_router)
 
 
 @app.get("/health", tags=["health"])

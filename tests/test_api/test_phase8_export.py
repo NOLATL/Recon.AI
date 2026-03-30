@@ -13,8 +13,8 @@ Tests every explicit requirement:
   - files list present and non-empty
   - Snapshot key == 'final_consolidated' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 11 total snapshots after export
-    (phases 0–7 = 10 snapshots, + export = 11)
+  - 13 total snapshots after export
+    (phases 0–7 = 12 snapshots, + export = 13)
 
   [Response — files]
   - Exactly 6 files in response
@@ -183,10 +183,17 @@ def _advance_to_final_consolidated_all_accepted(client, sid):
       - rejected: empty
       - state: final_consolidated
     """
+    r = _upload(client, sid)
+    assert r.status_code == 200, f"upload failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     for step, fn in [
-        ("upload",       lambda: _upload(client, sid)),
         ("profile",      lambda: _profile(client, sid)),
         ("preprocess",   lambda: _preprocess(client, sid)),
+    ]:
+        r = fn()
+        assert r.status_code == 200, f"{step} failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.MATCHING_CONFIGURED)
+    for step, fn in [
         ("deterministic",lambda: _deterministic(client, sid)),
         ("det_review",   lambda: _det_review(client, sid)),
         ("probabilistic",lambda: _probabilistic(client, sid)),
@@ -219,10 +226,17 @@ def _advance_to_final_consolidated_all_rejected(client, sid):
       - rejected: 2 matches (prob + ai)
       - state: final_consolidated
     """
+    r = _upload(client, sid)
+    assert r.status_code == 200, f"upload failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     for step, fn in [
-        ("upload",       lambda: _upload(client, sid)),
         ("profile",      lambda: _profile(client, sid)),
         ("preprocess",   lambda: _preprocess(client, sid)),
+    ]:
+        r = fn()
+        assert r.status_code == 200, f"{step} failed: {r.text}"
+    rm.advance_state(sid, ReconciliationState.MATCHING_CONFIGURED)
+    for step, fn in [
         ("deterministic",lambda: _deterministic(client, sid)),
         ("det_review",   lambda: _det_review(client, sid)),
         ("probabilistic",lambda: _probabilistic(client, sid)),
@@ -296,10 +310,10 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_eleven_snapshots_after_export(self, client, session_id):
-        """Ten prior transitions + export = 11 snapshots total."""
+        """Twelve prior transitions + export = 13 snapshots total."""
         _advance_to_final_consolidated_all_accepted(client, session_id)
         _export(client, session_id)
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 11
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 13
 
 
 # ===========================================================================
@@ -486,10 +500,17 @@ class TestWrongState:
         assert "final_consolidated" in detail
 
     def test_from_ai_review_complete_returns_409(self, client, session_id):
+        r = _upload(client, session_id)
+        assert r.status_code == 200, f"upload failed: {r.text}"
+        rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
         for step, fn in [
-            ("upload",       lambda: _upload(client, session_id)),
             ("profile",      lambda: _profile(client, session_id)),
             ("preprocess",   lambda: _preprocess(client, session_id)),
+        ]:
+            r = fn()
+            assert r.status_code == 200, f"{step} failed: {r.text}"
+        rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
+        for step, fn in [
             ("deterministic",lambda: _deterministic(client, session_id)),
             ("det_review",   lambda: _det_review(client, session_id)),
             ("probabilistic",lambda: _probabilistic(client, session_id)),
@@ -502,10 +523,17 @@ class TestWrongState:
         assert _export(client, session_id).status_code == 409
 
     def test_from_ai_review_complete_detail_mentions_final_consolidated(self, client, session_id):
+        r = _upload(client, session_id)
+        assert r.status_code == 200, f"upload failed: {r.text}"
+        rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
         for step, fn in [
-            ("upload",       lambda: _upload(client, session_id)),
             ("profile",      lambda: _profile(client, session_id)),
             ("preprocess",   lambda: _preprocess(client, session_id)),
+        ]:
+            r = fn()
+            assert r.status_code == 200, f"{step} failed: {r.text}"
+        rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
+        for step, fn in [
             ("deterministic",lambda: _deterministic(client, session_id)),
             ("det_review",   lambda: _det_review(client, session_id)),
             ("probabilistic",lambda: _probabilistic(client, session_id)),

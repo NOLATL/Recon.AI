@@ -12,9 +12,11 @@ Tests every explicit requirement:
   - summary present in response
   - Snapshot key == 'deterministic_review_complete' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 6 total snapshots after probabilistic
-    (initialized→files_loaded, files_loaded→profiled, profiled→preprocessed,
-     preprocessed→deterministic_complete, deterministic_complete→deterministic_review_complete,
+  - 8 total snapshots after probabilistic
+    (initialized→files_loaded, files_loaded→column_mapping_complete,
+     column_mapping_complete→profiled, profiled→preprocessed,
+     preprocessed→matching_configured, matching_configured→deterministic_complete,
+     deterministic_complete→deterministic_review_complete,
      deterministic_review_complete→probabilistic_complete)
   - matches written to runtime["matching"]["probabilistic"]
   - residual_pool updated in runtime
@@ -170,10 +172,12 @@ def _advance_to_det_review_complete(client, session_id):
     """Upload → profile → preprocess → deterministic → review."""
     r = _upload(client, session_id)
     assert r.status_code == 200, f"Upload failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     r = _profile(client, session_id)
     assert r.status_code == 200, f"Profile failed: {r.text}"
     r = _preprocess(client, session_id)
     assert r.status_code == 200, f"Preprocess failed: {r.text}"
+    rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
     r = _deterministic(client, session_id)
     assert r.status_code == 200, f"Deterministic failed: {r.text}"
     r = _det_review(client, session_id)
@@ -227,11 +231,11 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_six_snapshots_after_probabilistic(self, client, session_id):
-        """Five prior transitions + probabilistic = 6 snapshots."""
+        """Seven prior transitions + probabilistic = 8 snapshots."""
         _advance_to_det_review_complete(client, session_id)
         _probabilistic(client, session_id)
         snapshots = rm.get_runtime(session_id)["snapshots"]
-        assert len(snapshots) == 6
+        assert len(snapshots) == 8
 
     def test_matches_written_to_runtime(self, client, session_id):
         _advance_to_det_review_complete(client, session_id)

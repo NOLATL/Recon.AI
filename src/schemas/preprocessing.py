@@ -13,12 +13,13 @@ class VendorOverridesRequest(BaseModel):
 
 
 class NormalizationEntrySchema(BaseModel):
-    original_vendor:     str
-    normalized_vendor:   str
-    matched_to:          Optional[str]
-    match_source:        str            # "preprocessing" | "nlp" | "ai"
-    similarity_score:    Optional[float]
-    ai_confidence_score: Optional[float]
+    original_vendor:       str
+    normalized_vendor:     str
+    matched_to:            Optional[str]
+    match_source:          str            # "preprocessing" | "nlp" | "ai"
+    similarity_score:      Optional[float]
+    ai_confidence_score:   Optional[float]
+    vendor_normalized_key: str = ""       # actual Vendor_Normalized key in the DataFrame
 
 
 class NormalizationSummary(BaseModel):
@@ -37,4 +38,9 @@ class PreprocessingResponse(BaseModel):
     vendor_normalization_map: List[NormalizationEntrySchema]
     unmatched_sub_vendors:    List[str] = []
     unmatched_sub_normalized: Dict[str, str] = {}
+    # Normalized vendor distributions (keyed by Vendor_Normalized, top 15)
+    gl_normalized_vendor_row_distribution: Dict[str, int]   = {}
+    gl_normalized_vendor_amt_distribution: Dict[str, float] = {}
+    sl_normalized_vendor_row_distribution: Dict[str, int]   = {}
+    sl_normalized_vendor_amt_distribution: Dict[str, float] = {}
     snapshot:                 SnapshotInfo

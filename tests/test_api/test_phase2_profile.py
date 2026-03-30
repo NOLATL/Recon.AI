@@ -9,10 +9,10 @@ Tests every explicit requirement:
   - response state == 'profiled'
   - session_id echoed in response
   - profiling written to runtime["profiling"] with 'metrics' and 'narrative' keys
-  - Snapshot key == 'files_loaded' (pre-transition state)
+  - Snapshot key == 'column_mapping_complete' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
   - Narrative is non-empty string containing stub disclaimer
-  - 2 total snapshots after profiling (initialized→files_loaded, files_loaded→profiled)
+  - 3 total snapshots after profiling (initialized→files_loaded, files_loaded→column_mapping_complete, column_mapping_complete→profiled)
   - All 6 metric categories present in response (null_counts, null_pct, dupes,
     numeric_distributions, date_ranges, entity_distribution)
   - cross_file summary in response
@@ -39,7 +39,7 @@ Tests every explicit requirement:
 
   [Wrong state]
   - Profile from 'initialized' state → 409 (must upload first)
-  - 409 detail mentions 'files_loaded'
+  - 409 detail mentions 'column_mapping_complete'
   - Unknown session_id → 404
   - 404 detail contains the bad session_id
 """
@@ -174,6 +174,7 @@ def _profile(client, session_id):
 def _advance_to_files_loaded(client, session_id, files=None):
     resp = _upload(client, session_id, files)
     assert resp.status_code == 200, f"Upload failed: {resp.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     return resp
 
 
@@ -202,10 +203,10 @@ class TestHappyPath:
         assert data["session_id"] == session_id
 
     def test_snapshot_key_is_files_loaded(self, client, session_id):
-        """Snapshot captured before transition → pre_transition_state = 'files_loaded'."""
+        """Snapshot captured before transition → pre_transition_state = 'column_mapping_complete'."""
         _advance_to_files_loaded(client, session_id)
         data = _profile(client, session_id).json()
-        assert data["snapshot"]["key"] == "files_loaded"
+        assert data["snapshot"]["key"] == "column_mapping_complete"
 
     def test_snapshot_integrity_hash_present(self, client, session_id):
         _advance_to_files_loaded(client, session_id)
@@ -240,10 +241,10 @@ class TestHappyPath:
         assert "narrative" in rm.get_runtime(session_id)["profiling"]
 
     def test_two_snapshots_after_profile(self, client, session_id):
-        """initialized→files_loaded + files_loaded→profiled = 2 total snapshots."""
+        """initialized→files_loaded, files_loaded→column_mapping_complete, column_mapping_complete→profiled = 3 total snapshots."""
         _advance_to_files_loaded(client, session_id)
         _profile(client, session_id)
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 2
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 3
 
     def test_all_three_files_in_metrics(self, client, session_id):
         _advance_to_files_loaded(client, session_id)
@@ -514,7 +515,7 @@ class TestWrongState:
 
     def test_409_detail_mentions_files_loaded(self, client, session_id):
         detail = _profile(client, session_id).json()["detail"]
-        assert "files_loaded" in detail
+        assert "column_mapping_complete" in detail
 
     def test_unknown_session_returns_404(self, client):
         assert _profile(client, "nonexistent-session-id").status_code == 404

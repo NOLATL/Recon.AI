@@ -37,5 +37,29 @@ def create_runtime(session_id: str) -> Dict[str, Any]:
             "vendor_nlp_threshold": 0.90,
             "alias_map": {},
             "alias_version": "v1.0.0",
+            "column_map": {
+                "side_a_label": "GL",
+                "side_b_label": "Subledger",
+                "side_a": {
+                    "id": "gl_id",
+                    "vendor": "vendor_name",
+                    "amount": "amount",
+                    "date": "transaction_date",
+                    "entity": "entity",
+                    "currency": "currency",
+                },
+                "side_b": {
+                    "id": "subledger_id",
+                    "vendor": "vendor_name",
+                    "amount": "amount",
+                    "date": "transaction_date",
+                    "entity": "entity",
+                    "currency": "currency",
+                },
+            },
+            "matching_config": {
+                "deterministic": [],
+                "probabilistic": {},
+            },
         },
     }

@@ -9,16 +9,32 @@ type NormEntry = {
   match_source: string
 }
 
-/** Display "AI" instead of "ai" or "Ai" */
+/** Compute the canonical Final vendor name for a given entry and optional override. */
+export function computeFinalVendorName(
+  entry: { original_vendor: string; matched_to: string | null; match_source: string },
+  override?: string
+): string {
+  if (override?.trim()) return override.trim()
+  if (!entry.matched_to) return entry.original_vendor
+  if (entry.match_source === 'nlp' || entry.match_source === 'ai') {
+    return entry.original_vendor.length <= entry.matched_to.length
+      ? entry.original_vendor
+      : entry.matched_to
+  }
+  return entry.original_vendor // preprocessing: either name normalizes the same, use GL
+}
+
+/** Display label for the Matching Process column */
 function formatMethod(s: string | undefined): string {
   if (!s) return ''
-  if (s.toLowerCase() === 'ai') return 'AI'
+  const lower = s.toLowerCase()
+  if (lower === 'ai') return 'AI'
+  if (lower === 'nlp') return 'Fuzzy Matching'
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
 }
 
-/** Method column fixed at 100px; others in % (must sum to 100 for the 4 % cols, method is extra) */
-const METHOD_WIDTH_PX = 100
-const DEFAULT_WIDTHS = { gl: 20, subledger: 20, standardized: 25, method: METHOD_WIDTH_PX, override: 35 }
+const MATCH_WIDTH_PX = 130
+const DEFAULT_WIDTHS = { gl: 20, subledger: 20, matching_process: MATCH_WIDTH_PX, override: 25, final: 35 }
 
 interface VendorPreprocessingTableProps {
   vendorNormMap: NormEntry[]
@@ -28,7 +44,7 @@ interface VendorPreprocessingTableProps {
   onVendorOverride: (key: string, value: string) => void
 }
 
-type ColKey = 'gl' | 'subledger' | 'standardized' | 'method' | 'override'
+type ColKey = 'gl' | 'subledger' | 'matching_process' | 'override' | 'final'
 
 export function VendorPreprocessingTable({
   vendorNormMap,
@@ -46,13 +62,13 @@ export function VendorPreprocessingTable({
     e.preventDefault()
     setResizing(col)
     startXRef.current = e.clientX
-    startWRef.current = typeof widths[col] === 'number' ? (widths[col] as number) : (col === 'method' ? METHOD_WIDTH_PX : 200)
+    startWRef.current = typeof widths[col] === 'number' ? (widths[col] as number) : (col === 'matching_process' ? MATCH_WIDTH_PX : 200)
   }, [widths])
 
   const handleResizeMove = useCallback((e: MouseEvent) => {
     if (!resizing) return
     const delta = e.clientX - startXRef.current
-    const minWidth = resizing === 'method' ? 80 : 120
+    const minWidth = resizing === 'matching_process' ? 100 : 120
     const newW = Math.max(minWidth, startWRef.current + delta)
     setWidths((prev) => ({ ...prev, [resizing]: newW }))
     startXRef.current = e.clientX
@@ -83,23 +99,23 @@ export function VendorPreprocessingTable({
         <colgroup>
           <col style={{ width: `${widths.gl}%` }} />
           <col style={{ width: `${widths.subledger}%` }} />
-          <col style={{ width: `${widths.standardized}%` }} />
-          <col style={{ width: `${widths.method}px` }} />
+          <col style={{ width: `${widths.matching_process}px` }} />
           <col style={{ width: `${widths.override}%` }} />
+          <col style={{ width: `${widths.final}%` }} />
         </colgroup>
         <TableHeader>
           <TableRow className="bg-[#333333]">
-            <TableHead className="font-mono font-bold text-white bg-[#333333]">GL Vendor (Input)</TableHead>
-            <TableHead className="font-mono font-bold text-white bg-[#333333]">Subledger Vendor (Input)</TableHead>
-            <TableHead className="font-mono font-bold text-white bg-[#333333]">Standardized Vendor Name</TableHead>
-            <TableHead className="w-[100px] font-mono font-bold text-white bg-[#333333]">Method</TableHead>
-            <TableHead className="relative min-w-[200px] font-mono font-bold text-white bg-[#333333]">
-              Override
+            <TableHead className="font-mono font-bold text-white bg-[#333333]">GL Source</TableHead>
+            <TableHead className="font-mono font-bold text-white bg-[#333333]">Subledger Source</TableHead>
+            <TableHead className="font-mono font-bold text-white bg-[#333333]" style={{ width: `${MATCH_WIDTH_PX}px` }}>Matching Process</TableHead>
+            <TableHead className="font-mono font-bold text-white bg-[#333333]">Override</TableHead>
+            <TableHead className="relative font-mono font-bold text-white bg-[#333333]">
+              Final
               <div
                 role="separator"
                 aria-orientation="vertical"
                 className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 transition-colors"
-                onMouseDown={(e) => handleResizeStart('override', e)}
+                onMouseDown={(e) => handleResizeStart('final', e)}
                 aria-label="Resize column"
               />
             </TableHead>
@@ -109,7 +125,7 @@ export function VendorPreprocessingTable({
           {vendorNormMap.map((entry) => {
             const key = entry.original_vendor
             const isUnmatched = !entry.matched_to
-            const effective = vendorOverrides[key] || entry.normalized_vendor
+            const finalName = computeFinalVendorName(entry, vendorOverrides[key])
             return (
               <TableRow key={key} className={isUnmatched ? 'bg-amber-50 dark:bg-amber-950/20' : undefined}>
                 <TableCell className="font-mono text-sm text-[#1a1a1a] overflow-hidden text-ellipsis" title={entry.original_vendor}>
@@ -118,43 +134,41 @@ export function VendorPreprocessingTable({
                 <TableCell className={`font-mono text-sm overflow-hidden text-ellipsis ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : 'text-[#1a1a1a]'}`} title={entry.matched_to ?? ''}>
                   {entry.matched_to ?? '—'}
                 </TableCell>
-                <TableCell className={`font-mono text-sm font-medium overflow-hidden text-ellipsis ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : 'text-[#1a1a1a]'}`} title={effective}>
-                  {effective}
+                <TableCell className={`text-xs overflow-hidden text-ellipsis ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : 'text-[#1a1a1a]'}`}>
+                  {isUnmatched ? 'Unmatched' : formatMethod(entry.match_source)}
                 </TableCell>
-                <TableCell className={`text-xs overflow-hidden text-ellipsis w-[100px] min-w-[100px] ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : 'text-[#1a1a1a]'}`}>
-                  {isUnmatched ? 'unmatched' : formatMethod(entry.match_source)}
-                </TableCell>
-                <TableCell className="min-w-[200px]">
+                <TableCell className="min-w-[160px]">
                   <Input
-                    placeholder={entry.normalized_vendor}
                     value={vendorOverrides[key] ?? ''}
                     onChange={(e) => onVendorOverride(key, e.target.value)}
                     className="h-8 text-sm min-w-0 w-full"
                   />
+                </TableCell>
+                <TableCell className={`font-mono text-sm font-medium overflow-hidden text-ellipsis ${isUnmatched ? 'text-amber-700 dark:text-amber-400' : 'text-[#1a1a1a]'}`} title={finalName}>
+                  {finalName}
                 </TableCell>
               </TableRow>
             )
           })}
           {unmatchedSubVendors.map((vendor) => {
             const key = `__sub__${vendor}`
-            const normalizedName = unmatchedSubNormalized[vendor] ?? vendor
+            const finalName = vendorOverrides[key]?.trim() || vendor
             return (
               <TableRow key={key} className="bg-amber-50 dark:bg-amber-950/20">
                 <TableCell className="font-mono text-sm text-amber-700 dark:text-amber-400">—</TableCell>
                 <TableCell className="font-mono text-sm text-[#1a1a1a] overflow-hidden text-ellipsis" title={vendor}>
                   {vendor}
                 </TableCell>
-                <TableCell className="font-mono text-sm text-amber-700 dark:text-amber-400 overflow-hidden text-ellipsis">
-                  {normalizedName !== vendor ? normalizedName : '(unmatched)'}
-                </TableCell>
-                <TableCell className="text-xs text-amber-700 dark:text-amber-400 w-[100px]">unmatched</TableCell>
-                <TableCell className="min-w-[200px]">
+                <TableCell className="text-xs text-amber-700 dark:text-amber-400">Unmatched</TableCell>
+                <TableCell className="min-w-[160px]">
                   <Input
-                    placeholder={normalizedName}
-                    value={vendorOverrides[key] ?? normalizedName}
+                    value={vendorOverrides[key] ?? ''}
                     onChange={(e) => onVendorOverride(key, e.target.value)}
                     className="h-8 text-sm min-w-0 w-full"
                   />
+                </TableCell>
+                <TableCell className="font-mono text-sm text-amber-700 dark:text-amber-400 overflow-hidden text-ellipsis" title={finalName}>
+                  {finalName}
                 </TableCell>
               </TableRow>
             )

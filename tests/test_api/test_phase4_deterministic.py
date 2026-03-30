@@ -10,11 +10,12 @@ Tests every explicit requirement:
   - session_id echoed in response
   - matches list present in response
   - summary present in response
-  - Snapshot key == 'preprocessed' (pre-transition state)
+  - Snapshot key == 'matching_configured' (pre-transition state)
   - Snapshot integrity hash present (64 hex chars)
-  - 4 total snapshots after deterministic
-    (initialized→files_loaded, files_loaded→profiled,
-     profiled→preprocessed, preprocessed→deterministic_complete)
+  - 6 total snapshots after deterministic
+    (initialized→files_loaded, files_loaded→column_mapping_complete,
+     column_mapping_complete→profiled, profiled→preprocessed,
+     preprocessed→matching_configured, matching_configured→deterministic_complete)
   - matches written to runtime["matching"]["deterministic"]
   - residual_pool written to runtime["residual_pool"]
   - residual_pool has "gl" and "subledger" keys
@@ -48,9 +49,9 @@ Tests every explicit requirement:
   - State remains 'deterministic_complete' after rejected call
 
   [Wrong state]
-  - Deterministic from 'initialized' → 409 with 'preprocessed' mention
-  - Deterministic from 'files_loaded' → 409 with 'preprocessed' mention
-  - Deterministic from 'profiled'     → 409 with 'preprocessed' mention
+  - Deterministic from 'initialized' → 409 with 'matching_configured' mention
+  - Deterministic from 'files_loaded' → 409 with 'matching_configured' mention
+  - Deterministic from 'profiled'     → 409 with 'matching_configured' mention
   - Unknown session → 404 with session_id in detail
 """
 
@@ -154,10 +155,12 @@ def _advance_to_preprocessed(client, session_id):
     """Upload + profile + preprocess to reach the 'preprocessed' pre-condition."""
     r1 = _upload(client, session_id)
     assert r1.status_code == 200, f"Upload failed: {r1.text}"
+    rm.advance_state(session_id, ReconciliationState.COLUMN_MAPPING_COMPLETE)
     r2 = _profile(client, session_id)
     assert r2.status_code == 200, f"Profile failed: {r2.text}"
     r3 = _preprocess(client, session_id)
     assert r3.status_code == 200, f"Preprocess failed: {r3.text}"
+    rm.advance_state(session_id, ReconciliationState.MATCHING_CONFIGURED)
 
 
 # ---------------------------------------------------------------------------
@@ -196,10 +199,10 @@ class TestHappyPath:
         assert "summary" in data
 
     def test_snapshot_key_is_preprocessed(self, client, session_id):
-        """Snapshot captured before transition → pre_transition_state = 'preprocessed'."""
+        """Snapshot captured before transition → pre_transition_state = 'matching_configured'."""
         _advance_to_preprocessed(client, session_id)
         data = _deterministic(client, session_id).json()
-        assert data["snapshot"]["key"] == "preprocessed"
+        assert data["snapshot"]["key"] == "matching_configured"
 
     def test_snapshot_integrity_hash_present(self, client, session_id):
         _advance_to_preprocessed(client, session_id)
@@ -207,11 +210,12 @@ class TestHappyPath:
         assert len(data["snapshot"]["integrity_hash"]) == 64
 
     def test_four_snapshots_after_deterministic(self, client, session_id):
-        """initialized→files_loaded, files_loaded→profiled,
-        profiled→preprocessed, preprocessed→deterministic_complete."""
+        """initialized→files_loaded, files_loaded→column_mapping_complete,
+        column_mapping_complete→profiled, profiled→preprocessed,
+        preprocessed→matching_configured, matching_configured→deterministic_complete."""
         _advance_to_preprocessed(client, session_id)
         _deterministic(client, session_id)
-        assert len(rm.get_runtime(session_id)["snapshots"]) == 4
+        assert len(rm.get_runtime(session_id)["snapshots"]) == 6
 
     def test_matches_written_to_runtime(self, client, session_id):
         _advance_to_preprocessed(client, session_id)
@@ -391,7 +395,7 @@ class TestWrongState:
 
     def test_409_detail_mentions_preprocessed(self, client, session_id):
         detail = _deterministic(client, session_id).json()["detail"]
-        assert "preprocessed" in detail
+        assert "matching_configured" in detail
 
     def test_unknown_session_returns_404(self, client):
         assert _deterministic(client, "nonexistent-id").status_code == 404

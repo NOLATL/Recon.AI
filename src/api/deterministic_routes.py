@@ -164,20 +164,23 @@ def run_deterministic(session_id: str):
         )
 
     # --- Guard: correct pre-condition state ---
-    if current != ReconciliationState.PREPROCESSED:
+    if current != ReconciliationState.MATCHING_CONFIGURED:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Deterministic matching requires state 'preprocessed'. "
+                f"Deterministic matching requires state 'matching_configured'. "
                 f"Current state is '{current.value}'."
             ),
         )
 
     # --- Pull inputs from runtime ---
-    runtime = rm.get_runtime(session_id)
-    clean   = runtime.get("clean_data", {})
-    gl_df   = clean.get("gl")
-    sub_df  = clean.get("subledger")
+    runtime    = rm.get_runtime(session_id)
+    clean      = runtime.get("clean_data", {})
+    gl_df      = clean.get("gl")
+    sub_df     = clean.get("subledger")
+    config     = runtime.get("config", {})
+    column_map = config.get("column_map")
+    det_config = config.get("matching_config", {}).get("deterministic") or []
 
     if gl_df is None or sub_df is None:
         raise HTTPException(
@@ -187,7 +190,12 @@ def run_deterministic(session_id: str):
 
     # --- Run matching pipeline (pure, no side effects) ---
     try:
-        result = run_deterministic_matching(gl_df=gl_df, sub_df=sub_df)
+        result = run_deterministic_matching(
+            gl_df=gl_df,
+            sub_df=sub_df,
+            column_map=column_map,
+            scenario_configs=det_config if det_config else None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

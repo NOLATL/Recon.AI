@@ -68,7 +68,7 @@ from rapidfuzz import fuzz
 # Constants
 # ---------------------------------------------------------------------------
 
-DATE_TOLERANCE_DAYS:  int   = 30
+DATE_TOLERANCE_DAYS:  int   = 60
 MAX_GROUP_SIZE:       int   = 5
 AMOUNT_PCT_TOLERANCE: float = 0.10     # 10 % of the larger absolute amount
 AMOUNT_ABS_TOLERANCE: float = 5.00    # always allow at least $5 difference
@@ -174,10 +174,10 @@ def _entity_sim(entity_a: str, entity_b: str) -> float:
 
 def _final_sim(comp: Dict[str, float], weights: Dict[str, float]) -> float:
     """Weighted sum of component similarities. Entity excluded (always 1.0 via blocking)."""
-    return (
-        weights["vendor"] * comp["vendor_similarity"] +
-        weights["amount"] * comp["amount_similarity"] +
-        weights["date"]   * comp["date_similarity"]
+    return sum(
+        w * comp.get(f"{role}_similarity", 0.0)
+        for role, w in weights.items()
+        if role != "entity"
     )
 
 
@@ -591,21 +591,26 @@ def _filter_pool(df: pd.DataFrame, id_col: str, used_ids: Set[str]) -> pd.DataFr
 # ---------------------------------------------------------------------------
 
 def run_probabilistic_matching(
-    gl_pool:   pd.DataFrame,
-    sub_pool:  pd.DataFrame,
-    threshold: float = DEFAULT_THRESHOLD,
-    weights:   Optional[Dict[str, float]] = None,
+    gl_pool:    pd.DataFrame,
+    sub_pool:   pd.DataFrame,
+    threshold:  float = DEFAULT_THRESHOLD,
+    weights:    Optional[Dict[str, float]] = None,
+    column_map: Optional[Dict] = None,
+    prob_config: Optional[Dict] = None,
 ) -> ProbabilisticResult:
     """
     Run the 3-step probabilistic matching pipeline on the residual pool.
 
     Args:
-        gl_pool:   GL residual DataFrame — must contain:
-                     gl_id, Vendor_Normalized, amount, transaction_date, entity
-        sub_pool:  Subledger residual DataFrame — must contain:
-                     subledger_id, Vendor_Normalized, amount, transaction_date, entity
-        threshold: Minimum final_similarity for a match to be accepted (0.0–1.0).
-        weights:   Override default component weights. Defaults to DEFAULT_WEIGHTS.
+        gl_pool:    GL residual DataFrame (already column-standardized by deterministic phase).
+        sub_pool:   Subledger residual DataFrame.
+        threshold:  Minimum final_similarity for a match to be accepted (0.0–1.0).
+        weights:    Override default component weights. Defaults to DEFAULT_WEIGHTS.
+        column_map: Optional column role mapping from runtime config. Reserved for
+                    future use — residual pools are already standardized by the
+                    deterministic phase, so this param is informational for Phase 1.
+        prob_config: Optional probabilistic config dict from matching_config. When
+                    provided, overrides threshold and weights from the config values.
 
     Returns:
         ProbabilisticResult — matches, updated residual pools, and metadata.
@@ -613,6 +618,12 @@ def run_probabilistic_matching(
     Raises:
         ValueError — if a required column is missing from a non-empty DataFrame.
     """
+    # Apply prob_config overrides when provided (from AI-suggested matching_config)
+    if prob_config:
+        threshold = prob_config.get("threshold", threshold)
+        if "weights" in prob_config:
+            weights = prob_config["weights"]
+
     if weights is None:
         weights = DEFAULT_WEIGHTS
 

@@ -6,15 +6,15 @@
 
 ## The Problem
 
-Month-end reconciliation at scale is slow, manual, and error-prone. Finance teams spend days matching thousands of GL and subledger entries across vendors who appear under a dozen different names, amounts that shift by a rounding error, and dates that drift across cut-offs. The result: late closes, audit risk, and analysts buried in Excel.
+Month-end reconciliation at scale is slow, manual, and error-prone. Finance teams spend days matching thousands of GL and subledger entries across vendors who appear under a dozen different names, amounts that shift, and dates that drift across cut-offs. The result: late closes, audit risk, and analysts buried in Excel.
 
-Recon.AI replaces that workflow with a structured, human-governed process — AI does the heavy lifting on design, cleansing, matching, and explanation, while the human stays in control of every consequential decision.
+Recon.AI replaces that workflow with a structured, human-governed process. The AI does the analytical work; the human owns every decision that matters.
 
 ---
 
 ## How It Works
 
-Recon.AI guides a reconciliation from raw file upload to audit-ready export through a structured sequence of phases. AI is present throughout — not just at the matching step.
+Recon.AI guides a reconciliation from raw file upload to audit-ready export through a structured sequence of phases. Recon.AI is designed around a simple principle: AI recommends, user decides.
 
 ```
   Upload Files
@@ -46,35 +46,19 @@ Recon.AI guides a reconciliation from raw file upload to audit-ready export thro
   └──────────────────────────────────────────────────┘
        ↓
   Single Consolidated Output
-  All matches presented together with full reasoning.
+  All matches presented with full reasoning.
   Human reviews, unmatches anything that looks wrong,
-  and manually adds matches AI missed.
+  and manually adds matches missed.
        ↓
   Final Consolidation & Export
-  Audit-ready package: every decision, every step
+  Audit-ready package: all data, every decision, every step
 ```
-
----
-
-## Human in the Loop — At the Right Moments
-
-Recon.AI is designed around a simple principle: AI recommends, humans decide — but only where human judgment actually matters.
-
-The three matching gates run automatically and produce a single consolidated result. The human's job is to review that result, not manage a multi-step approval process:
-
-- **Before cleansing** — cleaning logic is shown and approved before any data is transformed
-- **Before matching** — the reconciliation design (rules, thresholds, groupings) is presented for review and adjustment
-- **After matching** — review the full consolidated match list; unmatch anything that looks wrong
-- **Manual matching** — create matches directly for cases the engine missed
-- **Full reasoning transparency** — every match shows the exact logic behind it, not just a confidence score
-
-No data is mutated silently. Every action is logged.
 
 ---
 
 ## AI Narrative & Chatbot
 
-Throughout the reconciliation, AI generates plain-English summaries of what it found, what it did, and why — written for finance professionals, not engineers. At any point, reviewers can ask follow-up questions via an AI chatbot that has full context of the session data, matches, and exceptions.
+Throughout the reconciliation, AI generates finance professionals friendy summaries of what it found, what it did, and why. Users can ask follow-up questions or "talk to the data" via an AI chatbot.
 
 ---
 

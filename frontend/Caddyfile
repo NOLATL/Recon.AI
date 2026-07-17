@@ -1,0 +1,8 @@
+# $PORT is injected by Railway; 80 is the local-docker fallback.
+:{$PORT:80} {
+	root * /srv
+	encode gzip
+	# SPA fallback — unknown paths route to index.html for client-side routing
+	try_files {path} /index.html
+	file_server
+}

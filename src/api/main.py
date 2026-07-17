@@ -5,6 +5,8 @@ Uvicorn invocation:
     uvicorn src.api.main:app --reload --port 8000
 """
 
+import os
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -35,12 +37,16 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# CORS — restrict origins before production deployment
+# CORS — origins come from ALLOWED_ORIGINS (comma-separated); "*" for local dev
 # ---------------------------------------------------------------------------
+_allowed_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: lock down to React app origin in production
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    # Wildcard origins cannot be combined with credentials per the CORS spec
+    allow_credentials=_allowed_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

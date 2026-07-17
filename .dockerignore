@@ -14,10 +14,9 @@ __pycache__
 env
 venv
 
-# Node / frontend (separate container or build step)
-node_modules
-frontend
-frontend-customer
+# Node (frontend sources stay in context — Dockerfile.admin/.customer build
+# them from the repo root; node_modules are never needed in any image)
+**/node_modules
 
 # Test suite (not needed at runtime)
 tests

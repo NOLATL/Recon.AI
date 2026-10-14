@@ -9,7 +9,7 @@ Uses OpenAI to produce a 3-paragraph summary covering:
 Falls back to a deterministic template if OPENAI_API_KEY is absent or the
 API call fails for any reason.
 
-Model: gpt-4o-mini (same as AI matching — cost-effective capable model).
+Model: DEFAULT_MODEL from src.llm.openai_client (same as AI matching).
 """
 
 import json
@@ -87,7 +87,7 @@ def _deterministic_narrative(data: Dict[str, Any]) -> str:
 
 def generate_summary_narrative(
     data: Dict[str, Any],
-    ai_model: str = "gpt-4o-mini",
+    ai_model: str | None = None,
 ) -> str:
     """
     Generate a post-reconciliation narrative summary.
@@ -98,7 +98,7 @@ def generate_summary_narrative(
                   ai_match_count, total_match_count, residual_gl_count,
                   residual_sub_count, rejected_count, override_count).
                   Optional keys: matched_amount, unmatched_amount.
-        ai_model: OpenAI model ID (defaults to gpt-4o-mini).
+        ai_model: OpenAI model ID (defaults to the client's DEFAULT_MODEL).
 
     Returns:
         Plain-text narrative string (3 paragraphs).

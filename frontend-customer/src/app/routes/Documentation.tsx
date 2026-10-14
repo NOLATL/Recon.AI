@@ -393,7 +393,7 @@ Default threshold: 0.85  (85% similarity required to accept)`}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm text-[#444]">
             <div>
               <p className="text-xs font-semibold text-[#888] uppercase tracking-wider mb-1">Default model</p>
-              <p className="font-mono text-[#333]">gpt-4o-mini</p>
+              <p className="font-mono text-[#333]">gpt-5.6-luna</p>
               <p className="text-xs text-[#888] mt-0.5">OpenAI API. Configurable per session.</p>
             </div>
             <div>

@@ -23,7 +23,7 @@ On LLM failure (network, JSON parse, etc.) for any group:
   - That group is silently skipped with a warning log.
   - The session is never failed — this is an advisory-only layer.
 
-Model: gpt-4o-mini (cost-effective, fully capable for structured JSON).
+Model: DEFAULT_MODEL from src.llm.openai_client (gpt-5.6-luna unless OPENAI_MODEL is set).
 Prompt version: v2.0.0 (stored in snapshot for audit reproducibility).
 """
 
@@ -36,14 +36,14 @@ from typing import Any, Dict, List, Set
 import pandas as pd
 from rapidfuzz import fuzz
 
-from src.llm.openai_client import OpenAIClient
+from src.llm.openai_client import DEFAULT_MODEL, OpenAIClient
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_AI_MODEL:        str   = "gpt-4o-mini"
+DEFAULT_AI_MODEL:        str   = DEFAULT_MODEL
 DEFAULT_PROMPT_VERSION:  str   = "v2.0.0"
 AI_MIN_CONFIDENCE:       float = 0.40
 MAX_RECORDS_PER_GROUP:   int   = 20   # per (entity, vendor) call — controls token cost

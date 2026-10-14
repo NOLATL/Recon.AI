@@ -158,7 +158,7 @@ const FAQ_SECTIONS: { heading: string; items: FAQItem[] }[] = [
       },
       {
         q: 'What AI model is used?',
-        a: 'The default model is OpenAI gpt-4o-mini, which provides a strong balance of reasoning quality and response speed for financial data analysis. The model is configurable per session in the session config if a different model is preferred.',
+        a: 'The default model is OpenAI gpt-5.6-luna, which provides a strong balance of reasoning quality and response speed for financial data analysis. The model is configurable per session in the session config if a different model is preferred.',
       },
     ],
   },

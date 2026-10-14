@@ -53,9 +53,10 @@ transitions.
 
 ## Deployment
 
--   Backend → Azure App Service (Docker container)
--   Frontend → Azure Static Web Apps
--   Storage (Phase 2+) → Azure Blob Storage + optional DB
+-   Backend → Railway service `api` (Docker container)
+-   Frontends → Railway services `admin-ui` / `customer-ui` (static bundles served by Caddy)
+-   Storage (Phase 2+) → Railway Postgres or a volume
+-   See RAILWAY_DEPLOY.md
 
 ------------------------------------------------------------------------
 
@@ -186,9 +187,9 @@ VS Code\
 ↓\
 Git Commit\
 ↓\
-Push to GitHub\
+railway up\
 ↓\
-Azure builds container\
+Railway builds container\
 ↓\
 FastAPI runs\
 ↓\

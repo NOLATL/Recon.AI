@@ -86,9 +86,9 @@ The audit package is complete by design — an examiner can reconstruct every de
 |---|---|
 | Backend | Python · FastAPI · Uvicorn |
 | Frontend | React · TypeScript · Vite · Tailwind CSS |
-| AI/ML | OpenAI API · RapidFuzz (NLP similarity) |
-| Infrastructure | Azure App Services · Azure Static Web Apps · Docker |
-| CI/CD | GitHub Actions |
+| AI/ML | OpenAI API (gpt-5.6-luna) · RapidFuzz (NLP similarity) |
+| Infrastructure | Railway · Docker · Caddy |
+| Deploy | Railway CLI (`railway up`, see RAILWAY_DEPLOY.md) |
 | Data | Pandas · Pydantic v2 |
 
 ---

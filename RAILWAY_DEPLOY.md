@@ -40,7 +40,7 @@ docker build -f Dockerfile.customer \
   --build-arg VITE_API_BASE_URL=https://api-production-e6f0.up.railway.app \
   -t recon-cust .
 rm -rf frontend-customer/prebuilt
-docker create --name x recon-cust && docker cp x:/srv/. frontend-customer/prebuilt && docker rm x
+docker create --name recon-cust-extract recon-cust && docker cp recon-cust-extract:/srv/. frontend-customer/prebuilt && docker rm recon-cust-extract
 railway up -s customer-ui -d
 ```
 
@@ -50,7 +50,12 @@ gitignored — `railway up` honors .gitignore when uploading.
 ## Environment variables (already set)
 
 - `api`: `ALLOWED_ORIGINS` = both frontend URLs (comma-separated).
-  `OPENAI_API_KEY` = **must be set manually** (dashboard → api → Variables).
+  `OPENAI_API_KEY` = OpenAI key (copied from the old Azure container app).
+  `OPENAI_MODEL` = `gpt-5.6-luna` (same model as GetPolitical; code default
+  if unset). gpt-5.6 models reject `temperature`/`max_tokens` — the client in
+  `src/llm/openai_client.py` sends `max_completion_tokens` only. Without the
+  key every AI step degrades silently and column mapping returns all
+  `ignore`, which then fails confirm-columns with a 422.
 - `admin-ui`/`customer-ui`: `VITE_API_BASE_URL` = api URL (build-time; a
   change requires redeploy/rebuild), `RAILWAY_DOCKERFILE_PATH` as above.
 

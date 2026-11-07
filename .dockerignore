@@ -14,7 +14,7 @@ __pycache__
 env
 venv
 
-# Node (frontend sources stay in context — Dockerfile.admin/.customer build
+# Node (frontend sources stay in context — Dockerfile.customer builds
 # them from the repo root; node_modules are never needed in any image)
 **/node_modules
 

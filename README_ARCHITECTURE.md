@@ -54,7 +54,7 @@ transitions.
 ## Deployment
 
 -   Backend → Railway service `api` (Docker container)
--   Frontends → Railway services `admin-ui` / `customer-ui` (static bundles served by Caddy)
+-   Frontend → `customer-ui` (static bundle served by Caddy). The old admin UI was retired 2026-11-07.
 -   Storage (Phase 2+) → Railway Postgres or a volume
 -   See RAILWAY_DEPLOY.md
 

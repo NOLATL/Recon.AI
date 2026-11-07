@@ -53,10 +53,11 @@ transitions.
 
 ## Deployment
 
--   Backend → Railway service `api` (Docker container)
+-   Runs as a Docker Compose stack on a self-hosted machine, private network only (hosted on Azure, then Railway, until 2026-11)
+-   Backend → `api` (Docker container)
 -   Frontend → `customer-ui` (static bundle served by Caddy). The old admin UI was retired 2026-11-07.
--   Storage (Phase 2+) → Railway Postgres or a volume
--   See RAILWAY_DEPLOY.md
+-   Storage (Phase 2+) → Postgres or a volume
+-   See DEPLOY.md
 
 ------------------------------------------------------------------------
 
@@ -187,9 +188,9 @@ VS Code\
 ↓\
 Git Commit\
 ↓\
-railway up\
+docker compose up -d --build\
 ↓\
-Railway builds container\
+Docker builds the containers\
 ↓\
 FastAPI runs\
 ↓\
